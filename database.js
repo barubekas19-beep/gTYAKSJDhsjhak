@@ -1,5 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database('./database.db'); 
+// Gunakan path dari Railway, atau default './database.db' jika dijalankan di PC
+const dbPath = process.env.SQLITE_PATH || './database.db';
+const db = new sqlite3.Database(dbPath);
 
 // Fungsi ini akan membuat tabel 'users' yang simpel (hanya lisensi)
 function initializeDatabase() {
