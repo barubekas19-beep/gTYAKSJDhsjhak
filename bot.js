@@ -13,10 +13,14 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const ADMIN_USER_ID = "959684975"; // <-- ID ANDA SUDAH DI-SET
 // ===============================================
 
-if (!TELEGRAM_TOKEN || !process.env.FIREFLY_TOKEN_URL) {
-    console.error("Error: Pastikan TELEGRAM_TOKEN dan FIREFLY_TOKEN_URL ada di file .env");
+// ===== PERBAIKAN DI SINI =====
+// Pengecekan FIREFLY_TOKEN_URL dihapus karena tidak lagi digunakan
+if (!TELEGRAM_TOKEN) {
+    console.error("Error: Pastikan TELEGRAM_TOKEN ada di file .env atau variabel environment.");
     process.exit(1);
 }
+// =============================
+
 if (ADMIN_USER_ID === "GANTI_DENGAN_ID_ADMIN_ANDA") {
      console.error("Error: Harap isi ADMIN_USER_ID di file bot.js (baris 13)");
     process.exit(1);
@@ -152,28 +156,23 @@ bot.onText(/\/listusers/, async (msg) => {
     }
 });
 
-// ===== PERINTAH ADMIN BARU: /adddays =====
-// Format: /adddays [jumlah_hari]
+// Perintah Admin /adddays
 bot.onText(/\/adddays (.+)/, async (msg, match) => {
     if (msg.from.id.toString() !== ADMIN_USER_ID) return;
     try {
-        // Ambil angka dari pesan
         const days = parseInt(match[1], 10);
         
-        // Cek apakah itu angka yang valid
         if (isNaN(days) || days <= 0) {
             throw new Error("Format salah. Masukkan jumlah hari yang valid. Contoh: /adddays 30");
         }
 
-        // Panggil fungsi database baru
         const response = await addDaysToAllUsers(days);
-        bot.sendMessage(msg.chat.id, response); // Kirim pesan sukses (misal: "Berhasil...")
+        bot.sendMessage(msg.chat.id, response); 
 
     } catch (err) {
         bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
     }
 });
-// =========================================
 
 
 // Perintah /buat
