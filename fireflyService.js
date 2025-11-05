@@ -1,225 +1,482 @@
-const axios = require('axios');
+// Muat file .env di baris paling atas
+require('dotenv').config(); 
+
+const TelegramBot = require('node-telegram-bot-api');
+const { generateVideo, generateVideoFromImage } = require('./fireflyService');
 const fs = require('fs');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+// Impor semua fungsi, termasuk 'addDaysToAllUsers'
+const { setLicense, checkUserAccess, getAllUsers, deleteUser, addDaysToAllUsers } = require('./database.js'); 
 
-// --- URL API (Tidak Berubah) ---
-const API_GENERATE_TEXT_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoText';
-const API_UPLOAD_URL = 'https://aisandbox-pa.googleapis.com/v1:uploadUserImage';
-const API_GENERATE_IMAGE_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoStartImage';
-const API_STATUS_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchCheckAsyncVideoGenerationStatus';
-// ===================================
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 
-// ===== TOKEN LOKAL ANDA =====
-const ALL_TOKENS = [
-  "ya29.a0ATi6K2t4v-4aqmAXH8GouO0kAKu4t73dOfb1_dVxd1ez7KFzelVSFWwVMuusKje2BaoKNsojDqymjw2GDLIUmrU6rsMpjo8LgSAXLfov6PftgEkLfE1Bfs69phIWI_KHDSmQI219REpHyPtPl9sJ7AOXr8yx3JBYJjZpXroqLWFxwzA69rAEFGWWaFD1ADinG_VB9RrX0GT-4Pr2bIU3tPlfl72-3GK6cd0ayrygCvVfHXIMryeH06slIbj8cUKfk8qLPYppDi6O7zWpLbRJBEcDWmC14GSK4xehcQKO2O29ruYBBySgYXxQ1__H9duQMsfT6eEe9X0OY0e__ewDegzgBlOeESai00sG4omb_MkaCgYKARgSARYSFQHGX2MicATgiWdNvRZYHLckmcg-UA0370"
-  // "ya29.a0A...TOKEN_ANDA_YANG_KETIGA",
-];
-// ===================================
+// ===== ID ADMIN ANDA SUDAH DIMASUKKAN DI SINI =====
+const ADMIN_USER_ID = "959684975"; // <-- ID ANDA SUDAH DI-SET
+// ===============================================
 
-
-// === FUNGSI UTILITAS (Tidak Berubah) ===
-function sanitizeFilename(prompt, extension) {
-    const truncated = prompt.length > 50 ? prompt.substring(0, 50) : prompt;
-    return truncated.replace(/[^a-z0-9]/gi, '_').toLowerCase() + extension;
+// ===== PERBAIKAN DI SINI =====
+// Pengecekan FIREFLY_TOKEN_URL dihapus karena tidak lagi digunakan
+if (!TELEGRAM_TOKEN) {
+    console.error("Error: Pastikan TELEGRAM_TOKEN ada di file .env atau variabel environment.");
+    process.exit(1);
 }
-const createGoogleHeaders = (token) => ({
-    'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
-    'Content-Type': 'application/json', 'accept': '*/*', 'origin': 'https://labs.google',
-    'referer': 'https://labs.google/',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-    'x-client-data': 'CJG2yQEIprbJAQipncoBCIeWywEIlKHLAQiFoM0BCI2OzwE='
+// =============================
+
+if (ADMIN_USER_ID === "GANTI_DENGAN_ID_ADMIN_ANDA") {
+     console.error("Error: Harap isi ADMIN_USER_ID di file bot.js (baris 13)");
+    process.exit(1);
+}
+
+const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+let userState = new Map();
+console.log('Bot Telegram "Rf Gen" v14 (Bulk Update) sedang berjalan...');
+
+// --- FUNGSI BARU: Mengirim Pilihan Mode ---
+async function sendModeSelection(chatId) {
+    userState.delete(chatId); 
+    await bot.sendMessage(chatId, "Pilih mode yang ingin Anda gunakan untuk membuat video berikutnya:", {
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    { text: '✏️ Text to Video', callback_data: 'mode_t2v' },
+                    { text: '🖼️ Image to Video', callback_data: 'mode_i2v' }
+                ]
+            ]
+        }
+    }).catch(err => console.error("Gagal mengirim pilihan mode:", err.message));
+}
+// ------------------------------------------
+
+// Perintah /start (Hanya menampilkan status lisensi sekali)
+bot.onText(/\/start/, async (msg) => {
+    userState.delete(msg.chat.id);
+    const chatId = msg.chat.id;
+    const userId = msg.from.id.toString();
+    const userName = msg.from.first_name || 'Pengguna';
+
+    await bot.sendMessage(chatId, 
+`👋 Halo, ${userName}!
+Bot ini adalah bot premium dengan sistem lisensi.
+
+Ketik /buat untuk memulai, atau hubungi admin untuk aktivasi lisensi.
+`
+    );
+
+    try {
+        const accessMessage = await checkUserAccess(userId);
+        await bot.sendMessage(chatId, `👤 Status Lisensi Anda:\n${accessMessage}`); 
+    } catch (err) {
+        await bot.sendMessage(chatId, `❌ Akses Ditolak: ${err.message}`);
+    }
+    
+    await sendModeSelection(chatId); 
 });
-// ===================================
+
+// Perintah /batal
+bot.onText(/\/batal/, (msg) => {
+    if (userState.has(msg.chat.id)) {
+        userState.delete(msg.chat.id);
+        bot.sendMessage(msg.chat.id, "Proses dibatalkan.");
+    } else {
+        bot.sendMessage(msg.chat.id, "Tidak ada proses yang sedang berjalan.");
+    }
+});
+
+// Perintah Admin /lisensi
+bot.onText(/\/lisensi (.+)/, async (msg, match) => {
+    if (msg.from.id.toString() !== ADMIN_USER_ID) return;
+    try {
+        const args = match[1].split(' ');
+        const userId = args[0];
+        const expirationDate = args[1]; // Format 'YYYY-MM-DD'
+        const username = `user_${userId}`; 
+        if (!userId || !expirationDate) throw new Error("Format salah. Contoh: /lisensi 12345678 2025-11-13");
+        
+        const response = await setLicense(userId, username, expirationDate);
+        bot.sendMessage(msg.chat.id, response);
+    } catch (err) {
+        bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
+    }
+});
+
+// Perintah Admin /blokir
+bot.onText(/\/blokir (.+)/, async (msg, match) => {
+    if (msg.from.id.toString() !== ADMIN_USER_ID) return;
+    try {
+        const userId = match[1].trim(); 
+        if (!userId) throw new Error("Format salah. Contoh: /blokir 12345678");
+        
+        const response = await setLicense(userId, 'blocked_user', '2000-01-01');
+        bot.sendMessage(msg.chat.id, `Pengguna ${userId} telah diblokir (lisensi diatur ke 2000-01-01).`);
+    } catch (err) {
+        bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
+    }
+});
+
+// Perintah Admin /hapus
+bot.onText(/\/hapus (.+)/, async (msg, match) => {
+    if (msg.from.id.toString() !== ADMIN_USER_ID) return;
+    try {
+        const userId = match[1].trim(); 
+        if (!userId) throw new Error("Format salah. Contoh: /hapus 12345678");
+        
+        const response = await deleteUser(userId);
+        bot.sendMessage(msg.chat.id, response);
+    } catch (err) {
+        bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
+    }
+});
+
+// Perintah Admin /listusers
+bot.onText(/\/listusers/, async (msg) => {
+    if (msg.from.id.toString() !== ADMIN_USER_ID) return;
+
+    try {
+        const users = await getAllUsers();
+        if (users.length === 0) {
+            bot.sendMessage(msg.chat.id, "Belum ada pengguna yang terdaftar di database.");
+            return;
+        }
+
+        let message = `Daftar Pengguna Terdaftar (${users.length} pengguna):\n\n`;
+        users.forEach(user => {
+            message += `👤 ID: \`${user.userId}\`\n🗓️ Aktif Sampai: ${user.expirationDate}\n\n`;
+        });
+        
+        if (message.length > 4096) {
+            bot.sendMessage(msg.chat.id, "Daftar pengguna terlalu panjang, mengirim sebagai beberapa pesan...");
+            for (let i = 0; i < message.length; i += 4096) {
+                await bot.sendMessage(msg.chat.id, message.substring(i, i + 4096), { parse_mode: 'Markdown' });
+            }
+        } else {
+            bot.sendMessage(msg.chat.id, message, { parse_mode: 'Markdown' });
+        }
+
+    } catch (err) {
+        bot.sendMessage(msg.chat.id, `Gagal mengambil daftar pengguna: ${err.message}`);
+    }
+});
+
+// Perintah Admin /adddays
+bot.onText(/\/adddays (.+)/, async (msg, match) => {
+    if (msg.from.id.toString() !== ADMIN_USER_ID) return;
+    try {
+        const days = parseInt(match[1], 10);
+        
+        if (isNaN(days) || days <= 0) {
+            throw new Error("Format salah. Masukkan jumlah hari yang valid. Contoh: /adddays 30");
+        }
+
+        const response = await addDaysToAllUsers(days);
+        bot.sendMessage(msg.chat.id, response); 
+
+    } catch (err) {
+        bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
+    }
+});
 
 
-// --- FUNGSI T2V (PERBAIKAN FINAL: Menghapus promptExpansionInput) ---
-async function generateVideo(settings, onStatusUpdate) {
-    const { prompt, aspectRatio, seed: seedInput, videoModelKey: modelKeyInput } = settings;
-    const savePath = path.join(__dirname, 'downloads');
-    if (!fs.existsSync(savePath)) fs.mkdirSync(savePath);
+// Perintah /buat
+bot.onText(/\/buat/, async (msg) => { 
+    const chatId = msg.chat.id;
+    userState.delete(chatId); 
+    await sendModeSelection(chatId); 
+});
 
-    let lastError = new Error("Semua token gagal atau tidak tersedia.");
+// Listener untuk GAMBAR (I2V)
+bot.on('photo', async (msg) => {
+    const chatId = msg.chat.id;
+    const state = userState.get(chatId);
 
-    for (let i = 0; i < ALL_TOKENS.length; i++) {
-        const currentToken = ALL_TOKENS[i];
-        const tokenIdentifier = `Token #${i + 1}`;
+    try {
+        await checkUserAccess(msg.from.id.toString());
+    } catch (err) {
+        bot.sendMessage(chatId, `❌ Akses Ditolak: ${err.message}`);
+        return; 
+    }
+
+    if (state && state.step === 'awaiting_photo_i2v') {
+        const photo = msg.photo[msg.photo.length - 1];
+        const fileId = photo.file_id;
+        
+        userState.set(chatId, { step: 'awaiting_prompt_i2v', fileId: fileId }); 
+        
+        bot.sendMessage(chatId, `✅ Gambar diterima.
+Sekarang, silakan kirimkan prompt untuk video Anda (bisa teks biasa atau format JSON)...`, {
+            reply_markup: {
+                force_reply: true,
+            }
+        });
+    } else {
+        await bot.sendMessage(chatId, "Untuk memulai Image-to-Video, silakan kirim /buat dan pilih mode 'Image to Video' terlebih dahulu.");
+        await sendModeSelection(chatId); 
+    }
+});
+
+
+// Listener untuk TEKS (Menangani T2V dan I2V)
+bot.on('message', async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id.toString();
+    if (!msg.text || msg.text.startsWith('/')) return; 
+
+    const state = userState.get(chatId);
+    if (!state) return; 
+
+    const promptText = msg.text;
+
+    // --- ALUR T2V (Text-to-Video) ---
+    if (state.step === 'awaiting_prompt_t2v') { 
+        try {
+            await checkUserAccess(userId);
+        } catch (err) {
+            bot.sendMessage(chatId, `❌ Akses Ditolak: ${err.message}`);
+            userState.delete(chatId);
+            return; 
+        }
         
         try {
-            const googleHeaders = createGoogleHeaders(currentToken);
-            
-            let apiAspectRatio, apiVideoModelKey;
-            if (modelKeyInput) {
-                apiVideoModelKey = modelKeyInput;
-                apiAspectRatio = (aspectRatio === '16:9') ? "VIDEO_ASPECT_RATIO_LANDSCAPE" : "VIDEO_ASPECT_RATIO_PORTRAIT";
-            } else {
-                apiAspectRatio = (aspectRatio === '16:9') ? "VIDEO_ASPECT_RATIO_LANDSCAPE" : "VIDEO_ASPECT_RATIO_PORTRAIT";
-                apiVideoModelKey = (aspectRatio === '16:9') ? "veo_3_1_t2v_fast_ultra" : "veo_3_1_t2v_fast_portrait_ultra";
-            }
-            const seed = seedInput || Math.floor(Math.random() * 999999);
-            const sceneId = uuidv4();
-            const cleanPrompt = prompt.replace(/\"/g, '');
-
-            onStatusUpdate(`Memulai T2V (${tokenIdentifier}): "${cleanPrompt.substring(0, 30)}..."`);
-            
-            // ===== PERBAIKAN DI SINI =====
-            // Menghapus 'promptExpansionInput' dari T2V
-            const generateBody = {
-              "clientContext": { "projectId": "d4b08afb-1a05-4513-a216-f3a7ffaf6147", "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
-              "requests": [ {
-                  "aspectRatio": apiAspectRatio, 
-                  "seed": seed, 
-                  "textInput": { "prompt": cleanPrompt },
-                  // "promptExpansionInput": { ... } // BLOK INI DIHAPUS
-                  "videoModelKey": apiVideoModelKey, 
-                  "metadata": { "sceneId": sceneId }
-              } ]
-            };
-            // =============================
-
-            const genResponse = await axios.post(API_GENERATE_TEXT_URL, generateBody, { headers: googleHeaders });
-            
-            const operationName = genResponse.data?.operations?.[0]?.operation?.name;
-            const responseSceneId = genResponse.data?.operations?.[0]?.sceneId;
-            if (!operationName || !responseSceneId) throw new Error(`Gagal memulai generate: ${JSON.stringify(genResponse.data)}`);
-            
-            onStatusUpdate("Menunggu video... (Ini bisa 1-3 menit)");
-            let videoUrl = null;
-            for (let attempts = 1; attempts <= 30; attempts++) {
-                await new Promise(resolve => setTimeout(resolve, 10000));
-                const statusBody = { "operations": [ { "operation": { "name": operationName }, "sceneId": responseSceneId, "status": "MEDIA_GENERATION_STATUS_PENDING" } ] };
-                const statusResponse = await axios.post(API_STATUS_URL, statusBody, { headers: googleHeaders });
-                const fifeUrl = statusResponse.data?.operations?.[0]?.operation?.metadata?.video?.fifeUrl;
-                if (fifeUrl) { videoUrl = fifeUrl; break; }
-                const failStatus = statusResponse.data?.operations?.[0]?.status;
-                if (failStatus === 'MEDIA_GENERATION_STATUS_FAILED') throw new Error(statusResponse.data.operations[0].operation?.error?.message || "Server Google gagal memproses video.");
-            }
-            if (!videoUrl) throw new Error('Waktu tunggu habis saat menunggu Google Veo.');
-
-            onStatusUpdate("Mengunduh video...");
-            const videoResponse = await axios.get(videoUrl, { responseType: 'arraybuffer' });
-            const finalFilename = sanitizeFilename(prompt, '.mp4');
-            const finalPath = path.join(savePath, finalFilename);
-            fs.writeFileSync(finalPath, videoResponse.data);
-            
-            onStatusUpdate("Selesai!");
-            return finalPath; // SUKSES!
-
-        } catch (error) {
-            let errorMsg = error.response ? JSON.stringify(error.response.data) : error.message;
-            let statusCode = error.response ? error.response.status : 0;
-            lastError = new Error(`(${tokenIdentifier}): ${errorMsg}`); 
-
-            if (statusCode === 401 || statusCode === 403 || statusCode === 429) {
-                onStatusUpdate(`${tokenIdentifier} gagal (Token Mati/Limit). Pindah ke token berikutnya...`);
-            } else {
-                if (errorMsg.includes("video_unsafe") || errorMsg.includes("PROMPT_REJECTED")) {
-                    throw new Error(`Prompt ditolak oleh Google karena tidak aman (unsafe).`);
+            const jsonInput = JSON.parse(promptText);
+            if (jsonInput.prompt && jsonInput.aspectRatio) {
+                userState.delete(chatId);
+                const statusMsg = await bot.sendMessage(chatId, `✅ JSON prompt T2V diterima.\n\nMemulai proses...`);
+                const settings = {
+                    prompt: jsonInput.prompt,
+                    aspectRatio: jsonInput.aspectRatio,
+                    seed: jsonInput.seed, 
+                    videoModelKey: jsonInput.videoModelKey,
+                    muteAudio: false
+                };
+                startTextGeneration(chatId, settings, statusMsg.message_id);
+            } else { throw new Error("JSON tidak valid."); }
+        } catch (e) {
+            const prompt = promptText;
+            userState.set(chatId, { step: 'awaiting_ratio_t2v', prompt: prompt });
+            bot.sendMessage(chatId, `✅ Prompt T2V diterima.
+Sekarang, silakan pilih rasio aspek T2V:`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [ { text: 'Landscape 16:9', callback_data: 'ratio_t2v_16:9' }, { text: 'Portrait 9:16', callback_data: 'ratio_t2v_9:16' } ],
+                        [ { text: '❌ Batal', callback_data: 'cancel_process' } ]
+                    ]
                 }
-                throw new Error(errorMsg || "Terjadi error tidak dikenal.");
-            }
+            });
         }
-    }
-    throw lastError;
-}
-
-// --- FUNGSI I2V (Ini SUDAH BENAR, 'promptExpansionInput' tetap ada) ---
-async function generateVideoFromImage(settings, onStatusUpdate) {
-    const { prompt, aspectRatio, imageBuffer, seed: seedInput, videoModelKey: modelKeyInput } = settings;
-    const savePath = path.join(__dirname, 'downloads');
-    if (!fs.existsSync(savePath)) fs.mkdirSync(savePath);
-
-    let lastError = new Error("Semua token gagal atau tidak tersedia.");
-
-    for (let i = 0; i < ALL_TOKENS.length; i++) {
-        const currentToken = ALL_TOKENS[i];
-        const tokenIdentifier = `Token #${i + 1}`;
+    } 
+    // --- ALUR I2V (Image-to-Video) ---
+    else if (state.step === 'awaiting_prompt_i2v') {
+        const fileId = state.fileId;
         
         try {
-            const googleHeaders = createGoogleHeaders(currentToken);
-            
-            let apiAspectRatio, apiVideoModelKey;
-            const generateAspectRatio = (aspectRatio === '16:9') ? "VIDEO_ASPECT_RATIO_LANDSCAPE" : "VIDEO_ASPECT_RATIO_PORTRAIT";
-            if (modelKeyInput) { apiVideoModelKey = modelKeyInput; }
-            else { apiVideoModelKey = (aspectRatio === '16:9') ? "veo_3_1_i2v_s_fast_ultra" : "veo_3_1_i2v_s_fast_portrait_ultra"; }
-            const seed = seedInput || Math.floor(Math.random() * 999999);
-            const sceneId = uuidv4();
-            
-            // --- LANGKAH A: UPLOAD GAMBAR ---
-            onStatusUpdate(`(${tokenIdentifier}) Mengunggah gambar referensi...`);
-            const imageBase64 = imageBuffer.toString('base64');
-            const uploadBody = {
-              "imageInput": { "rawImageBytes": imageBase64, "mimeType": "image/jpeg", "isUserUploaded": true, "aspectRatio": "IMAGE_ASPECT_RATIO_LANDSCAPE" },
-              "clientContext": { "tool": "ASSET_MANAGER" }
-            };
-            const uploadResponse = await axios.post(API_UPLOAD_URL, uploadBody, { headers: googleHeaders });
-            const mediaId = uploadResponse.data?.mediaGenerationId?.mediaGenerationId;
-            if (!mediaId) throw new Error("Gagal mendapatkan Media ID dari gambar yang diupload.");
-
-            // --- LANGKAH B: GENERATE VIDEO ---
-            const i2vPrompt = prompt || "best camera movement base on picture"; 
-            onStatusUpdate(`Memulai I2V (${tokenIdentifier}): "${i2vPrompt.substring(0, 30)}..."`);
-            const generateBody = {
-              "clientContext": { "projectId": "c971e668-3a9a-4ef0-be19-12e873af1af9", "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
-              "requests": [ {
-                  "aspectRatio": generateAspectRatio, "seed": seed, "textInput": { "prompt": i2vPrompt },
-                  "promptExpansionInput": {
-                    "prompt": "best camera movement base on picture", "seed": seed,
-                    "templateId": "0TNlfC6bSF", 
-                    "imageInputs": [ { "mediaId": mediaId, "imageUsageType": "IMAGE_USAGE_TYPE_UNSPECIFIED" } ]
-                  },
-                  "videoModelKey": apiVideoModelKey, "startImage": { "mediaId": mediaId }, "metadata": { "sceneId": sceneId }
-              } ]
-            };
-
-            const genResponse = await axios.post(API_GENERATE_IMAGE_URL, generateBody, { headers: googleHeaders });
-            
-            const operationName = genResponse.data?.operations?.[0]?.operation?.name;
-            const responseSceneId = genResponse.data?.operations?.[0]?.sceneId;
-            if (!operationName || !responseSceneId) throw new Error(`Gagal memulai generate: ${JSON.stringify(genResponse.data)}`);
-            
-            onStatusUpdate("Menunggu video... (Ini bisa 1-3 menit)");
-            let videoUrl = null;
-            for (let attempts = 1; attempts <= 30; attempts++) {
-                await new Promise(resolve => setTimeout(resolve, 10000));
-                const statusBody = { "operations": [ { "operation": { "name": operationName }, "sceneId": responseSceneId, "status": "MEDIA_GENERATION_STATUS_PENDING" } ] };
-                const statusResponse = await axios.post(API_STATUS_URL, statusBody, { headers: googleHeaders });
-                const fifeUrl = statusResponse.data?.operations?.[0]?.operation?.metadata?.video?.fifeUrl;
-                if (fifeUrl) { videoUrl = fifeUrl; break; }
-                const failStatus = statusResponse.data?.operations?.[0]?.status;
-                if (failStatus === 'MEDIA_GENERATION_STATUS_FAILED') throw new Error(statusResponse.data.operations[0].operation?.message || "Server Google gagal memproses video.");
-            }
-            if (!videoUrl) throw new Error('Waktu tunggu habis saat menunggu Google Veo.');
-
-            onStatusUpdate("Mengunduh video...");
-            const videoResponse = await axios.get(videoUrl, { responseType: 'arraybuffer' });
-            const finalFilename = sanitizeFilename(i2vPrompt, '.mp4');
-            const finalPath = path.join(savePath, finalFilename);
-            fs.writeFileSync(finalPath, videoResponse.data);
-            
-            onStatusUpdate("Selesai!");
-            return finalPath; // SUKSES!
-
-        } catch (error) {
-            let errorMsg = error.response ? JSON.stringify(error.response.data) : error.message;
-            let statusCode = error.response ? error.response.status : 0;
-            lastError = new Error(`(${tokenIdentifier}): ${errorMsg}`);
-
-            if (statusCode === 401 || statusCode === 403 || statusCode === 429) {
-                onStatusUpdate(`${tokenIdentifier} gagal (Token Mati/Limit). Pindah ke token berikutnya...`);
-            } else {
-                if (errorMsg.includes("video_unsafe") || errorMsg.includes("PROMPT_REJECTED")) {
-                    throw new Error(`Prompt ditolak oleh Google karena tidak aman (unsafe).`);
+            const jsonInput = JSON.parse(promptText);
+            if (jsonInput.prompt && jsonInput.aspectRatio) {
+                userState.delete(chatId);
+                const statusMsg = await bot.sendMessage(chatId, `✅ JSON prompt I2V diterima.\n\nMemulai proses...`);
+                const settings = {
+                    prompt: jsonInput.prompt,
+                    aspectRatio: jsonInput.aspectRatio,
+                    seed: jsonInput.seed, 
+                    videoModelKey: jsonInput.videoModelKey,
+                    muteAudio: false
+                };
+                startImageGeneration(chatId, settings, fileId, statusMsg.message_id);
+            } else { throw new Error("JSON tidak valid."); }
+        } catch (e) {
+            const prompt = promptText;
+            userState.set(chatId, { step: 'awaiting_ratio_i2v', prompt: prompt, fileId: fileId });
+            bot.sendMessage(chatId, `✅ Prompt I2V diterima: "${prompt.substring(0, 50)}..."
+Sekarang, silakan pilih rasio aspek I2V:`, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [ { text: 'Landscape 16:9', callback_data: 'ratio_i2v_16:9' }, { text: 'Portrait 9:16', callback_data: 'ratio_i2v_9:16' } ],
+                        [ { text: '❌ Batal', callback_data: 'cancel_process' } ]
+                    ]
                 }
-                throw new Error(errorMsg || "Terjadi error tidak dikenal.");
-            }
+            });
         }
     }
-    throw lastError;
+});
+
+
+// Listener untuk Tombol Inline
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const userId = query.from.id.toString(); 
+    const data = query.data;
+    const state = userState.get(chatId);
+    const msgId = query.message.message_id;
+
+    bot.answerCallbackQuery(query.id).catch(err => console.log("Mengabaikan error 'query too old'"));
+
+    if (data === 'cancel_process') {
+        userState.delete(chatId);
+        bot.editMessageText("Dibatalkan.", { chat_id: chatId, message_id: msgId }).catch(err => console.log("Gagal edit pesan 'Batal'"));
+        return;
+    }
+
+    // --- Pilihan Mode ---
+    if (data === 'mode_t2v') {
+        try {
+            await checkUserAccess(userId); 
+        } catch (err) {
+            bot.editMessageText(`❌ Akses Ditolak: ${err.message}`, { chat_id: chatId, message_id: msgId }).catch(err => console.log("Gagal edit pesan 'Akses Ditolak'"));
+            return;
+        }
+        
+        userState.set(chatId, { step: 'awaiting_prompt_t2v' });
+        bot.editMessageText("Mode: ✏️ Text to Video\n\nSilakan kirimkan prompt video Anda (bisa teks biasa atau format JSON)...", {
+            chat_id: chatId, message_id: msgId
+        }).catch(err => console.log("Gagal edit pesan 'Mode T2V'"));
+        
+        bot.sendMessage(chatId, "↑ Balas pesan ini dengan prompt Anda ↑", {
+             reply_markup: { force_reply: true }
+        });
+        return;
+    }
+
+    if (data === 'mode_i2v') {
+        try {
+            await checkUserAccess(userId); 
+        } catch (err) {
+            bot.editMessageText(`❌ Akses Ditolak: ${err.message}`, { chat_id: chatId, message_id: msgId }).catch(err => console.log("Gagal edit pesan 'Akses Ditolak'"));
+            return;
+        }
+
+        userState.set(chatId, { step: 'awaiting_photo_i2v' });
+        bot.editMessageText("Mode: 🖼️ Image to Video\n\nSilakan kirimkan satu gambar (foto) untuk dianimasikan...", {
+            chat_id: chatId, message_id: msgId
+        }).catch(err => console.log("Gagal edit pesan 'Mode I2V'"));
+        return;
+    }
+    
+    if (!state) {
+        bot.editMessageText("Terjadi kesalahan (state tidak ditemukan), silakan mulai lagi.", { chat_id: chatId, message_id: msgId })
+           .catch(() => {}); 
+        await sendModeSelection(chatId);
+        return;
+    }
+
+    // --- ALUR T2V (Teks-ke-Video) ---
+    if (data.startsWith('ratio_t2v_') && state.step === 'awaiting_ratio_t2v') {
+        const aspectRatio = data.split('_')[2]; 
+        const prompt = state.prompt;
+        userState.delete(chatId); 
+
+        bot.editMessageText(
+            `✅ T2V Diterima.\n\nPrompt: "${prompt}"\nRasio: ${aspectRatio}\n\nMemulai proses...`, 
+            { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } } 
+        ).catch(err => console.log("Gagal edit pesan 'T2V Diterima'"));
+        
+        const settings = { prompt: prompt, aspectRatio: aspectRatio, muteAudio: false };
+        startTextGeneration(chatId, settings, msgId);
+    }
+    
+    // --- ALUR I2V (Gambar-ke-Video) ---
+    if (data.startsWith('ratio_i2v_') && state.step === 'awaiting_ratio_i2v') {
+        const aspectRatio = data.split('_')[2]; 
+        const { prompt, fileId } = state;
+        userState.delete(chatId); 
+
+        bot.editMessageText(
+            `✅ I2V Diterima.\n\nPrompt: "${prompt}"\nRasio: ${aspectRatio}\n\nMemulai proses...`, 
+            { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } } 
+        ).catch(err => console.log("Gagal edit pesan 'I2V Diterima'"));
+        
+        const settings = { prompt: prompt, aspectRatio: aspectRatio, muteAudio: false };
+        startImageGeneration(chatId, settings, fileId, msgId);
+    }
+});
+
+
+// === FUNGSI GENERATE (T2V) ===
+async function startTextGeneration(chatId, settings, statusMessageId) {
+    const onStatusUpdate = (text) => {
+        console.log(`[${chatId}] ${text}`);
+        bot.editMessageText(
+            `Status: ${text}`, 
+            { 
+                chat_id: chatId, 
+                message_id: statusMessageId,
+                reply_markup: { inline_keyboard: [] } 
+            }
+        ).catch(err => console.log("Gagal update status:", err.message));
+    };
+
+    try {
+        const videoPath = await generateVideo(settings, onStatusUpdate); 
+        const stats = fs.statSync(videoPath);
+        const fileSizeInMB = stats.size / (1024 * 1024);
+
+        if (fileSizeInMB > 50) {
+            onStatusUpdate(`❌ Gagal! Ukuran video ${fileSizeInMB.toFixed(2)} MB (melebihi 50 MB).`);
+            bot.sendMessage(chatId, `❌ Video berhasil dibuat, tetapi terlalu besar untuk dikirim (${fileSizeInMB.toFixed(2)} MB). Batas Telegram 50 MB.`);
+        } else {
+            onStatusUpdate("Mengunggah video ke Telegram...");
+            const maxPromptLength = 900; 
+            const truncatedPrompt = settings.prompt.length > maxPromptLength ? settings.prompt.substring(0, maxPromptLength) + "..." : settings.prompt;
+            const captionText = `✅ Selesai (T2V)!\n\nPrompt: "${truncatedPrompt}"`;
+            await bot.sendVideo(chatId, videoPath, { caption: captionText });
+            await bot.deleteMessage(chatId, statusMessageId).catch(err => console.log("Gagal menghapus pesan status:", err.message));
+        }
+        fs.unlinkSync(videoPath);
+    } catch (error) {
+        console.error(error); 
+        bot.editMessageText(`❌ Terjadi Error: ${error.message}`, { chat_id: chatId, message_id: statusMessageId, reply_markup: { inline_keyboard: [] } })
+           .catch(err => console.log("Gagal edit pesan 'Error'"));
+    } finally {
+        userState.delete(chatId); 
+        await sendModeSelection(chatId); 
+    }
 }
 
-// Ekspor kedua fungsi
-module.exports = {
-    generateVideo,
-    generateVideoFromImage
-};
+// === FUNGSI GENERATE (I2V) ===
+async function startImageGeneration(chatId, settings, fileId, statusMessageId) {
+    const onStatusUpdate = (text) => {
+        console.log(`[${chatId}] ${text}`);
+        bot.editMessageText(
+            `Status: ${text}`, 
+            { 
+                chat_id: chatId, 
+                message_id: statusMessageId,
+                reply_markup: { inline_keyboard: [] } 
+            }
+        ).catch(err => console.log("Gagal update status:", err.message));
+    };
+
+    try {
+        onStatusUpdate("Mengunduh gambar dari Telegram...");
+        const fileStream = bot.getFileStream(fileId);
+        
+        const chunks = [];
+        for await (const chunk of fileStream) {
+            chunks.push(chunk);
+        }
+        const imageBuffer = Buffer.concat(chunks);
+        
+        settings.imageBuffer = imageBuffer;
+
+        const videoPath = await generateVideoFromImage(settings, onStatusUpdate);
+        
+        const stats = fs.statSync(videoPath);
+        const fileSizeInMB = stats.size / (1024 * 1024);
+
+        if (fileSizeInMB > 50) {
+            onStatusUpdate(`❌ Gagal! Ukuran video ${fileSizeInMB.toFixed(2)} MB (melebihi 50 MB).`);
+            bot.sendMessage(chatId, `❌ Video berhasil dibuat, tetapi terlalu besar untuk dikirim (${fileSizeInMB.toFixed(2)} MB). Batas Telegram 50 MB.`);
+        } else {
+            onStatusUpdate("Mengunggah video ke Telegram...");
+            const maxPromptLength = 900; 
+            const truncatedPrompt = settings.prompt.length > maxPromptLength ? settings.prompt.substring(0, maxPromptLength) + "..." : settings.prompt;
+            const captionText = `✅ Selesai (I2V)!\n\nPrompt: "${truncatedPrompt}"`;
+            await bot.sendVideo(chatId, videoPath, { caption: captionText });
+            await bot.deleteMessage(chatId, statusMessageId).catch(err => console.log("Gagal menghapus pesan status:", err.message));
+        }
+        fs.unlinkSync(videoPath);
+    } catch (error) {
+        console.error(error); 
+        bot.editMessageText(`❌ Terjadi Error: ${error.message}`, { chat_id: chatId, message_id: statusMessageId, reply_markup: { inline_keyboard: [] } })
+           .catch(err => console.log("Gagal edit pesan 'Error'"));
+    } finally {
+        userState.delete(chatId); 
+        await sendModeSelection(chatId); 
+    }
+}
