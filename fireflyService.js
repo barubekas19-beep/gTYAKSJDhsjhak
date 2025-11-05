@@ -13,7 +13,7 @@ const API_STATUS_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchCheckA
 // ===== TOKEN LOKAL ANDA =====
 const ALL_TOKENS = [
   "ya29.a0ATi6K2t4v-4aqmAXH8GouO0kAKu4t73dOfb1_dVxd1ez7KFzelVSFWwVMuusKje2BaoKNsojDqymjw2GDLIUmrU6rsMpjo8LgSAXLfov6PftgEkLfE1Bfs69phIWI_KHDSmQI219REpHyPtPl9sJ7AOXr8yx3JBYJjZpXroqLWFxwzA69rAEFGWWaFD1ADinG_VB9RrX0GT-4Pr2bIU3tPlfl72-3GK6cd0ayrygCvVfHXIMryeH06slIbj8cUKfk8qLPYppDi6O7zWpLbRJBEcDWmC14GSK4xehcQKO2O29ruYBBySgYXxQ1__H9duQMsfT6eEe9X0OY0e__ewDegzgBlOeESai00sG4omb_MkaCgYKARgSARYSFQHGX2MicATgiWdNvRZYHLckmcg-UA0370"
-    // "ya29.a0A...TOKEN_ANDA_YANG_KETIGA",
+  // "ya29.a0A...TOKEN_ANDA_YANG_KETIGA",
 ];
 // ===================================
 
@@ -33,7 +33,7 @@ const createGoogleHeaders = (token) => ({
 // ===================================
 
 
-// --- FUNGSI T2V (DIPERBARUI DENGAN CEK 401) ---
+// --- FUNGSI T2V (PERBAIKAN FINAL: Menghapus promptExpansionInput) ---
 async function generateVideo(settings, onStatusUpdate) {
     const { prompt, aspectRatio, seed: seedInput, videoModelKey: modelKeyInput } = settings;
     const savePath = path.join(__dirname, 'downloads');
@@ -62,17 +62,20 @@ async function generateVideo(settings, onStatusUpdate) {
 
             onStatusUpdate(`Memulai T2V (${tokenIdentifier}): "${cleanPrompt.substring(0, 30)}..."`);
             
+            // ===== PERBAIKAN DI SINI =====
+            // Menghapus 'promptExpansionInput' dari T2V
             const generateBody = {
               "clientContext": { "projectId": "d4b08afb-1a05-4513-a216-f3a7ffaf6147", "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
               "requests": [ {
                   "aspectRatio": apiAspectRatio, 
                   "seed": seed, 
                   "textInput": { "prompt": cleanPrompt },
-                  // Blok 'promptExpansionInput' DIHAPUS di T2V
+                  // "promptExpansionInput": { ... } // BLOK INI DIHAPUS
                   "videoModelKey": apiVideoModelKey, 
                   "metadata": { "sceneId": sceneId }
               } ]
             };
+            // =============================
 
             const genResponse = await axios.post(API_GENERATE_TEXT_URL, generateBody, { headers: googleHeaders });
             
@@ -107,12 +110,9 @@ async function generateVideo(settings, onStatusUpdate) {
             let statusCode = error.response ? error.response.status : 0;
             lastError = new Error(`(${tokenIdentifier}): ${errorMsg}`); 
 
-            // ===== PERBAIKAN DI SINI =====
-            // Tambahkan 'statusCode === 401' (Unauthenticated) ke kondisi retry
             if (statusCode === 401 || statusCode === 403 || statusCode === 429) {
                 onStatusUpdate(`${tokenIdentifier} gagal (Token Mati/Limit). Pindah ke token berikutnya...`);
             } else {
-            // =============================
                 if (errorMsg.includes("video_unsafe") || errorMsg.includes("PROMPT_REJECTED")) {
                     throw new Error(`Prompt ditolak oleh Google karena tidak aman (unsafe).`);
                 }
@@ -123,7 +123,7 @@ async function generateVideo(settings, onStatusUpdate) {
     throw lastError;
 }
 
-// --- FUNGSI I2V (DIPERBARUI DENGAN CEK 401) ---
+// --- FUNGSI I2V (Ini SUDAH BENAR, 'promptExpansionInput' tetap ada) ---
 async function generateVideoFromImage(settings, onStatusUpdate) {
     const { prompt, aspectRatio, imageBuffer, seed: seedInput, videoModelKey: modelKeyInput } = settings;
     const savePath = path.join(__dirname, 'downloads');
@@ -205,12 +205,9 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
             let statusCode = error.response ? error.response.status : 0;
             lastError = new Error(`(${tokenIdentifier}): ${errorMsg}`);
 
-            // ===== PERBAIKAN DI SINI =====
-            // Tambahkan 'statusCode === 401' (Unauthenticated) ke kondisi retry
             if (statusCode === 401 || statusCode === 403 || statusCode === 429) {
                 onStatusUpdate(`${tokenIdentifier} gagal (Token Mati/Limit). Pindah ke token berikutnya...`);
             } else {
-            // =============================
                 if (errorMsg.includes("video_unsafe") || errorMsg.includes("PROMPT_REJECTED")) {
                     throw new Error(`Prompt ditolak oleh Google karena tidak aman (unsafe).`);
                 }
