@@ -12,7 +12,7 @@ const API_STATUS_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchCheckA
 
 // ===== TOKEN LOKAL ANDA =====
 const ALL_TOKENS = [
-  "ya29.a0ATi6K2uHuh5JF6A1XeQiRTsAzpsrF47X96UGE7pC70z-Pr3-MTI_0ybGEVrNm7E1nfNAgUV0CgKDojY64pGlDJaDdv7oPbzFrIioiN5RvGglM-0bT6FizlXHh53chINejlJOcUEeZJCjHNDMrhjXkGsEHzwE7F7H_sOKoVZP9RVXQUvMJJwI_O-11t0FUVhs-JyZ3sMFW_-ItTgdkdGiJ-XFHAY6dLECMwltfQ58bgXDhWKngqR3vUly4PLk71ixnyHpa1j_3D7EqRnfsFsPCPJGHSY_z-G1rdV8GyZ4mLGYcYnLsEqJvHb7g_OAYxcuFCoOlVL7z_eMfLA-0O-Ozn1bA-RfqDQXJn5x4P-ozH4aCgYKAZgSARYSFQHGX2MiWo0vwlQtKchks5dluBkVyg0370",
+  "ya29.a0ATi6K2vTDUnx9cyySKJgJR5H_Jjpv5N3HbG2xIcGYopOjrTlVQVXrzSjn3P0FM6ZiHYYFOLzlG16YPeBxtVgiSQ17y3O2Ks7UC9Gf8phkBjy_YuaYh5Np1R12cticibpqJrQ0-bAETUpYbK5ekKanQqWCCvhXrm2WIYSfvuz5JOE_tfSyVw0ocCzQGS6Fqb9yzV6Xz-ZuJXbn6UlDgFW0D3zo7yNgn3-1geFNHkE0J1YkLNNyHuffEjQpivIXVMYpOLZ6psdXeiV2s_6vFlk2LR0cXcXzJI_qJxK2AKJuTMsRcdwHITSgilMRiWsTpZOl9eF_fOHy6-CHGta4R-8eReZJ8f9rGUNzQ7c_bYWarEaCgYKAd0SARYSFQHGX2Mi-s5CMJoLeucaQBg_B5pVUQ0370",
   "ya29.a0ATi6K2vuUrMDWnivnx_-OZauaO_yP5V_KPip1rMuI5TAV9UneMGPbREnHbZVpX8PFlx_c-dSf2opNcYt0Cl7Lj6qQAUuWf6jR6ENpkgFAoHpt7WJFugxxLxnzL3g3g8TQVt6qtLWNcKiBDj6c4DzeSPA8MW_eyIidFxDAAPQyus8UnF2UQsySTxBRV1wnpOgXCcMH0M6blKw4iH1KOaYzlQ-hqMr6o96fIu8h2G7vbaEZvnm4zUhhVkw-5RfOHXplPRVa1PbjjuW9T39z9keJDGtUWYj_3fOZEJwlh66qrirwM27o4R1mqLAwK-smxN2grNUyE6gA-Q7hKMuaKLCI9wj3xigrOwcIctr3QaCgYKAa4SARESFQHGX2MiuP_HvqjFzGrYJC6BDnQLqg0365", // "ya29.a0A...TOKEN_ANDA_YANG_KETIGA",
 ];
 // ===================================
@@ -226,6 +226,7 @@ module.exports = {
     generateVideo,
     generateVideoFromImage
 };
+
 
 
 
