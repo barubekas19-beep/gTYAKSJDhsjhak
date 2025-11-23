@@ -1,6 +1,5 @@
 const sqlite3 = require('sqlite3').verbose();
-const dbPath = process.env.SQLITE_PATH || './database.db';
-const db = new sqlite3.Database(dbPath);
+const db = new sqlite3.Database(process.env.SQLITE_PATH || './database.db'); // Menggunakan Path Railway jika ada
 
 // Fungsi ini akan membuat tabel 'users' yang simpel (hanya lisensi)
 function initializeDatabase() {
@@ -78,7 +77,7 @@ function checkUserAccess(userId) {
     });
 }
 
-// Fungsi untuk melihat SEMUA pengguna (termasuk yang mati) - Tetap disimpan jika butuh backup
+// Fungsi untuk melihat SEMUA pengguna
 function getAllUsers() {
     return new Promise((resolve, reject) => {
         db.all("SELECT userId, expirationDate FROM users ORDER BY expirationDate DESC", [], (err, rows) => {
@@ -88,24 +87,21 @@ function getAllUsers() {
     });
 }
 
-// === FUNGSI BARU: HANYA LIHAT USER AKTIF ===
+// === FUNGSI: HANYA LIHAT USER AKTIF ===
 function getActiveUsersOnly() {
     return new Promise((resolve, reject) => {
-        // Ambil tanggal hari ini (YYYY-MM-DD)
         const date = new Date();
         const year = date.getFullYear();
         const month = (date.getMonth() + 1).toString().padStart(2, '0');
         const day = date.getDate().toString().padStart(2, '0');
         const todayStr = `${year}-${month}-${day}`;
 
-        // Query SQL: Ambil user di mana expirationDate >= hari ini
         db.all("SELECT userId, expirationDate FROM users WHERE expirationDate >= ? ORDER BY expirationDate ASC", [todayStr], (err, rows) => {
             if (err) return reject(err);
             resolve(rows); 
         });
     });
 }
-// ===========================================
 
 // Fungsi untuk menghapus pengguna
 function deleteUser(userId) {
@@ -123,18 +119,42 @@ function deleteUser(userId) {
     });
 }
 
-// Fungsi untuk menambah hari ke semua pengguna
+// Fungsi tambah hari ke SEMUA user
 function addDaysToAllUsers(daysToAdd) {
     return new Promise((resolve, reject) => {
         const modifier = `+${daysToAdd} days`;
         const stmt = db.prepare("UPDATE users SET expirationDate = date(expirationDate, ?)");
         stmt.run(modifier, function(err) { 
             if (err) return reject(err);
-            resolve(`Berhasil menambahkan ${daysToAdd} hari ke ${this.changes} pengguna.`);
+            resolve(`Berhasil menambahkan ${daysToAdd} hari ke ${this.changes} pengguna (SEMUA).`);
         });
         stmt.finalize();
     });
 }
+
+// === FUNGSI BARU: TAMBAH HARI KE USER AKTIF SAJA ===
+function addDaysToActiveUsers(daysToAdd) {
+    return new Promise((resolve, reject) => {
+        const modifier = `+${daysToAdd} days`;
+        
+        // Ambil tanggal hari ini
+        const date = new Date();
+        const year = date.getFullYear();
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const day = date.getDate().toString().padStart(2, '0');
+        const todayStr = `${year}-${month}-${day}`;
+
+        // Query: Update HANYA JIKA expirationDate >= hari ini
+        const stmt = db.prepare("UPDATE users SET expirationDate = date(expirationDate, ?) WHERE expirationDate >= ?");
+        
+        stmt.run(modifier, todayStr, function(err) { 
+            if (err) return reject(err);
+            resolve(`Berhasil menambahkan ${daysToAdd} hari ke ${this.changes} pengguna AKTIF saja.`);
+        });
+        stmt.finalize();
+    });
+}
+// ===================================================
 
 initializeDatabase();
 
@@ -142,8 +162,8 @@ module.exports = {
     setLicense,
     checkUserAccess,
     getAllUsers,
-    getActiveUsersOnly, // <-- Pastikan ini ada
+    getActiveUsersOnly, 
     deleteUser,
-    addDaysToAllUsers 
+    addDaysToAllUsers,
+    addDaysToActiveUsers // <-- Ekspor fungsi baru
 };
-
