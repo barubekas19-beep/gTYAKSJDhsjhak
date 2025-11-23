@@ -181,7 +181,6 @@ bot.on('message', async (msg) => {
             return; 
         }
         
-        // Simpan prompt, lanjut ke pilih Rasio
         const prompt = promptText;
         userState.set(chatId, { step: 'awaiting_ratio_t2v', prompt: prompt });
         bot.sendMessage(chatId, `✅ Prompt T2V diterima.\nSekarang, silakan pilih rasio aspek T2V:`, {
@@ -245,32 +244,50 @@ bot.on('callback_query', async (query) => {
     
     if (!state) return;
 
-    // --- LANGKAH 2 T2V: Pilih Rasio -> Lanjut ke Pilih Kualitas ---
+    // --- LANGKAH 2 T2V: Pilih Rasio ---
     if (data.startsWith('ratio_t2v_') && state.step === 'awaiting_ratio_t2v') {
-        const aspectRatio = data.split('_')[2];
-        // Simpan rasio, update step ke pilih kualitas
-        state.aspectRatio = aspectRatio;
-        state.step = 'awaiting_quality_t2v';
-        userState.set(chatId, state);
+        const aspectRatio = data.split('_')[2]; // '16:9' atau '9:16'
+        
+        // LOGIKA BARU: Cek Rasio
+        if (aspectRatio === '9:16') {
+            // === PORTRAIT (9:16) -> LANGSUNG 720P (SKIP MENU KUALITAS) ===
+            const prompt = state.prompt;
+            userState.delete(chatId); 
 
-        bot.editMessageText(
-            `✅ Rasio ${aspectRatio} dipilih.\nSekarang pilih kualitas video:`, 
-            { 
-                chat_id: chatId, message_id: msgId, 
-                reply_markup: { 
-                    inline_keyboard: [
-                        [ { text: '⚡ 720p (Cepat)', callback_data: 'quality_t2v_720p' } ],
-                        [ { text: '🌟 1080p (HD - Upscale)', callback_data: 'quality_t2v_1080p' } ],
-                        [ { text: '❌ Batal', callback_data: 'cancel_process' } ]
-                    ] 
-                } 
-            }
-        ).catch(err => console.log("Gagal edit pesan 'Pilih Kualitas'"));
+            bot.editMessageText(
+                `✅ T2V Diterima (Portrait).\n\nPrompt: "${prompt}"\nRasio: ${aspectRatio}\nKualitas: 720p (Max untuk Portrait)\n\nMemulai proses...`, 
+                { chat_id: chatId, message_id: msgId, reply_markup: { inline_keyboard: [] } } 
+            ).catch(err => {});
+            
+            // Paksa kualitas '720p'
+            const settings = { prompt: prompt, aspectRatio: aspectRatio, quality: '720p', muteAudio: false };
+            startTextGeneration(chatId, settings, msgId);
+
+        } else {
+            // === LANDSCAPE (16:9) -> TAMPILKAN MENU KUALITAS ===
+            state.aspectRatio = aspectRatio;
+            state.step = 'awaiting_quality_t2v';
+            userState.set(chatId, state);
+
+            bot.editMessageText(
+                `✅ Rasio ${aspectRatio} dipilih.\nSekarang pilih kualitas video:`, 
+                { 
+                    chat_id: chatId, message_id: msgId, 
+                    reply_markup: { 
+                        inline_keyboard: [
+                            [ { text: '⚡ 720p (Cepat)', callback_data: 'quality_t2v_720p' } ],
+                            [ { text: '🌟 1080p (HD - Upscale)', callback_data: 'quality_t2v_1080p' } ], // Hanya muncul di Landscape
+                            [ { text: '❌ Batal', callback_data: 'cancel_process' } ]
+                        ] 
+                    } 
+                }
+            ).catch(err => console.log("Gagal edit pesan 'Pilih Kualitas'"));
+        }
     }
 
-    // --- LANGKAH 3 T2V: Pilih Kualitas -> Generate ---
+    // --- LANGKAH 3 T2V: Pilih Kualitas (Hanya Landscape) -> Generate ---
     if (data.startsWith('quality_t2v_') && state.step === 'awaiting_quality_t2v') {
-        const quality = data.split('_')[2]; // '720p' atau '1080p'
+        const quality = data.split('_')[2]; 
         const { prompt, aspectRatio } = state;
         userState.delete(chatId);
 
@@ -283,7 +300,7 @@ bot.on('callback_query', async (query) => {
         startTextGeneration(chatId, settings, msgId);
     }
     
-    // --- ALUR I2V (Gambar-ke-Video) - Tanpa Pilihan Kualitas (Langsung 720p) ---
+    // --- ALUR I2V (Langsung 720p) ---
     if (data.startsWith('ratio_i2v_') && state.step === 'awaiting_ratio_i2v') {
         const aspectRatio = data.split('_')[2]; 
         const { prompt, fileId } = state;
