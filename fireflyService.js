@@ -33,7 +33,7 @@ const createGoogleHeaders = (token) => ({
 // ===================================
 
 
-// --- FUNGSI T2V (LOGIKA UPSCALE MIRRORING MAIN.JS) ---
+// --- FUNGSI T2V (UPSCALE FIX: PRIORITY MEDIA ID) ---
 async function generateVideo(settings, onStatusUpdate) {
     const { prompt, aspectRatio, quality, seed: seedInput, videoModelKey: modelKeyInput } = settings;
     const savePath = path.join(__dirname, 'downloads');
@@ -86,7 +86,7 @@ async function generateVideo(settings, onStatusUpdate) {
             let videoUrl = null;
             let fullMetadata = null; 
 
-            for (let attempts = 1; attempts <= 40; attempts++) {
+            for (let attempts = 1; attempts <= 30; attempts++) {
                 await new Promise(resolve => setTimeout(resolve, 10000));
                 const statusBody = { "operations": [ { "operation": { "name": operationName }, "sceneId": responseSceneId, "status": "MEDIA_GENERATION_STATUS_PENDING" } ] };
                 const statusResponse = await axios.post(API_STATUS_URL, statusBody, { headers: googleHeaders });
@@ -107,23 +107,25 @@ async function generateVideo(settings, onStatusUpdate) {
 
             // --- TAHAP 2: UPSCALE (Jika User Pilih 1080p) ---
             if (isUpscale && fullMetadata) {
-                // [PERBAIKAN UTAMA] Menggunakan logika fallback ID yang PERSIS sama dengan main.js
-                // main.js: const idToUse = fullMetadata.name || fullMetadata.video?.mediaGenerationId || fullMetadata.video?.mediaId || fullMetadata.id;
-                const idToUse = fullMetadata.name || fullMetadata.video?.mediaGenerationId || fullMetadata.video?.mediaId || fullMetadata.id;
+                // [PERBAIKAN PENTING] Prioritaskan mediaGenerationId (UUID), baru name
+                // Ini memperbaiki error 400 Invalid Argument
+                const idToUse = fullMetadata.video?.mediaGenerationId || fullMetadata.video?.mediaId || fullMetadata.id || fullMetadata.name;
                 
+                console.log(`[DEBUG] Upscale ID Selected: ${idToUse}`); // Log untuk debug di Railway
+
                 if (idToUse) {
-                    onStatusUpdate(`🎬 Memulai Upscale ke 1080p... (ID: ${idToUse.substring(0, 10)}...)`);
+                    onStatusUpdate("🎬 Memulai Upscale ke 1080p... (Tahap 2)");
                     
                     const upscaleBody = {
                         "clientContext": { "projectId": "d4b08afb-1a05-4513-a216-f3a7ffaf6147", "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
                         "requests": [{
-                            "aspectRatio": apiAspectRatio, // Mengikuti main.js: tetap kirim aspectRatio
-                            "seed": Math.floor(Math.random() * 20000), // [PERBAIKAN] Mengikuti main.js: seed max 20000
+                            "aspectRatio": apiAspectRatio, 
+                            "seed": Math.floor(Math.random() * 20000), 
                             "videoModelKey": "veo_2_1080p_upsampler_8s", 
                             "videoInput": { 
-                                "mediaId": idToUse // ID yang sudah pasti valid
+                                "mediaId": idToUse 
                             },
-                            "metadata": { "sceneId": responseSceneId } // Reuse sceneId
+                            "metadata": { "sceneId": responseSceneId }
                         }]
                     };
 
@@ -137,7 +139,7 @@ async function generateVideo(settings, onStatusUpdate) {
                             onStatusUpdate("Menunggu render 1080p... (1-2 menit lagi)");
                             
                             let upscaleSuccess = false;
-                            for (let upAttempts = 1; upAttempts <= 60; upAttempts++) { // [PERBAIKAN] Naikkan timeout jadi 60x (sesuai main.js)
+                            for (let upAttempts = 1; upAttempts <= 60; upAttempts++) {
                                 await new Promise(resolve => setTimeout(resolve, 10000));
                                 const upStatusBody = { "operations": [ { "operation": { "name": operationName }, "sceneId": responseSceneId, "status": "MEDIA_GENERATION_STATUS_PENDING" } ] };
                                 const upStatusResponse = await axios.post(API_STATUS_URL, upStatusBody, { headers: googleHeaders });
@@ -146,32 +148,31 @@ async function generateVideo(settings, onStatusUpdate) {
                                 const upFifeUrl = upOpResult?.operation?.metadata?.video?.fifeUrl;
                                 
                                 if (upFifeUrl) {
-                                    videoUrl = upFifeUrl; // Update URL ke versi 1080p
+                                    videoUrl = upFifeUrl; 
                                     upscaleSuccess = true;
                                     break;
                                 }
                                 if (upOpResult?.status === 'MEDIA_GENERATION_STATUS_FAILED') {
-                                    console.log("Upscale Gagal di Server:", JSON.stringify(upOpResult));
+                                    console.log("Upscale Failed on Server Side");
                                     break; 
                                 }
                             }
                             
                             if (!upscaleSuccess) {
-                                onStatusUpdate("⚠️ Upscale timeout. Mengirim versi 720p.");
+                                onStatusUpdate("⚠️ Upscale timeout/gagal. Mengirim versi 720p.");
                             } else {
                                 onStatusUpdate("✅ Upscale 1080p Berhasil!");
                             }
                         } else {
                             console.log("Upscale Response Invalid:", JSON.stringify(upscaleResponse.data));
-                            onStatusUpdate("⚠️ Gagal memulai Upscale (Invalid Response). Mengirim 720p.");
+                            onStatusUpdate("⚠️ Gagal memulai Upscale. Mengirim 720p.");
                         }
                     } catch (errUpscale) {
                         console.error("Upscale Request Error:", errUpscale.response ? JSON.stringify(errUpscale.response.data) : errUpscale.message);
-                        onStatusUpdate("⚠️ Gagal request Upscale (Error 400/500). Mengirim versi 720p.");
+                        onStatusUpdate("⚠️ Upscale Ditolak (Error 400/500). Mengirim versi 720p.");
                     }
                 } else {
-                    console.log("Metadata Full (untuk debug):", JSON.stringify(fullMetadata));
-                    onStatusUpdate("⚠️ Gagal mendapatkan ID Video untuk Upscale. Mengirim versi 720p.");
+                    onStatusUpdate("⚠️ Gagal mendapatkan ID Video valid untuk Upscale.");
                 }
             }
 
