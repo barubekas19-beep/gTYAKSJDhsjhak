@@ -4,24 +4,23 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { generateVideo, generateVideoFromImage } = require('./fireflyService');
 const fs = require('fs');
-// Impor semua fungsi, termasuk 'addDaysToAllUsers'
-const { setLicense, checkUserAccess, getAllUsers, deleteUser, addDaysToAllUsers } = require('./database.js'); 
+// Impor semua fungsi, termasuk 'getActiveUsersOnly'
+const { setLicense, checkUserAccess, getAllUsers, getActiveUsersOnly, deleteUser, addDaysToAllUsers } = require('./database.js'); 
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 
 // ===== ID ADMIN ANDA =====
-const ADMIN_USER_ID = "959684975"; // <-- Pastikan ini ID Anda
+const ADMIN_USER_ID = "959684975"; 
 // =========================
 
 // Variabel status maintenance (Default: false / mati)
 let isMaintenanceMode = false;
 
-// --- BAGIAN YANG DIUBAH (Hanya cek TELEGRAM_TOKEN) ---
+// Cek token (Bagian Firefly sudah dihapus agar tidak error di Railway)
 if (!TELEGRAM_TOKEN) {
     console.error("Error: Pastikan TELEGRAM_TOKEN ada di file .env / Variables Railway");
     process.exit(1);
 }
-// -----------------------------------------------------
 
 if (ADMIN_USER_ID === "GANTI_DENGAN_ID_ADMIN_ANDA") {
      console.error("Error: Harap isi ADMIN_USER_ID di file bot.js");
@@ -32,7 +31,7 @@ const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 let userState = new Map();
 console.log('Bot Telegram sedang berjalan...');
 
-// --- FUNGSI BARU: Mengirim Pilihan Mode ---
+// --- FUNGSI: Mengirim Pilihan Mode ---
 async function sendModeSelection(chatId) {
     userState.delete(chatId); 
     await bot.sendMessage(chatId, "Pilih mode yang ingin Anda gunakan untuk membuat video berikutnya:", {
@@ -46,15 +45,13 @@ async function sendModeSelection(chatId) {
         }
     }).catch(err => console.error("Gagal mengirim pilihan mode:", err.message));
 }
-// ------------------------------------------
 
 // Perintah /start
 bot.onText(/\/start/, async (msg) => {
-    // --- CEK MAINTENANCE ---
+    // CEK MAINTENANCE
     if (isMaintenanceMode && msg.from.id.toString() !== ADMIN_USER_ID) {
         return bot.sendMessage(msg.chat.id, "⚠️ **SISTEM SEDANG MAINTENANCE**\n\nMohon maaf, bot sedang dalam perbaikan/update sistem. Silakan coba lagi nanti.");
     }
-    // -----------------------
 
     userState.delete(msg.chat.id);
     const chatId = msg.chat.id;
@@ -116,7 +113,7 @@ bot.onText(/\/blokir (.+)/, async (msg, match) => {
         if (!userId) throw new Error("Format salah. Contoh: /blokir 12345678");
         
         const response = await setLicense(userId, 'blocked_user', '2000-01-01');
-        bot.sendMessage(msg.chat.id, `Pengguna ${userId} telah diblokir (lisensi diatur ke 2000-01-01).`);
+        bot.sendMessage(msg.chat.id, `Pengguna ${userId} telah diblokir.`);
     } catch (err) {
         bot.sendMessage(msg.chat.id, `Error: ${err.message}`);
     }
@@ -136,18 +133,20 @@ bot.onText(/\/hapus (.+)/, async (msg, match) => {
     }
 });
 
-// Admin: /listusers
+// Admin: /listusers (HANYA YANG AKTIF)
 bot.onText(/\/listusers/, async (msg) => {
     if (msg.from.id.toString() !== ADMIN_USER_ID) return;
 
     try {
-        const users = await getAllUsers();
+        // Menggunakan fungsi filter baru
+        const users = await getActiveUsersOnly();
+        
         if (users.length === 0) {
-            bot.sendMessage(msg.chat.id, "Belum ada pengguna yang terdaftar di database.");
+            bot.sendMessage(msg.chat.id, "Tidak ada pengguna aktif saat ini.");
             return;
         }
 
-        let message = `Daftar Pengguna Terdaftar (${users.length} pengguna):\n\n`;
+        let message = `✅ **Daftar Pengguna AKTIF** (${users.length} pengguna):\n\n`;
         users.forEach(user => {
             message += `👤 ID: \`${user.userId}\`\n🗓️ Aktif Sampai: ${user.expirationDate}\n\n`;
         });
@@ -202,11 +201,9 @@ bot.onText(/\/mt (.+)/, (msg, match) => {
 
 // Perintah /buat
 bot.onText(/\/buat/, async (msg) => { 
-    // --- CEK MAINTENANCE ---
     if (isMaintenanceMode && msg.from.id.toString() !== ADMIN_USER_ID) {
         return bot.sendMessage(msg.chat.id, "⚠️ **SISTEM SEDANG MAINTENANCE**\n\nMohon maaf, bot sedang dalam perbaikan/update sistem. Silakan coba lagi nanti.");
     }
-    // -----------------------
 
     const chatId = msg.chat.id;
     userState.delete(chatId); 
@@ -215,11 +212,9 @@ bot.onText(/\/buat/, async (msg) => {
 
 // Listener untuk GAMBAR (I2V)
 bot.on('photo', async (msg) => {
-    // --- CEK MAINTENANCE ---
     if (isMaintenanceMode && msg.from.id.toString() !== ADMIN_USER_ID) {
         return bot.sendMessage(msg.chat.id, "⚠️ **SISTEM SEDANG MAINTENANCE**\n\nGambar Anda tidak diproses karena sedang update.");
     }
-    // -----------------------
 
     const chatId = msg.chat.id;
     const state = userState.get(chatId);
@@ -255,12 +250,7 @@ bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id.toString();
 
-    // --- CEK MAINTENANCE ---
-    if (isMaintenanceMode && userId !== ADMIN_USER_ID) {
-        return; // Diam saja, jangan balas
-    }
-    // -----------------------
-
+    if (isMaintenanceMode && userId !== ADMIN_USER_ID) return;
     if (!msg.text || msg.text.startsWith('/')) return; 
 
     const state = userState.get(chatId);
@@ -349,14 +339,12 @@ bot.on('callback_query', async (query) => {
     const state = userState.get(chatId);
     const msgId = query.message.message_id;
 
-    // --- CEK MAINTENANCE ---
     if (isMaintenanceMode && userId !== ADMIN_USER_ID) {
         return bot.answerCallbackQuery(query.id, {
             text: "⚠️ Sedang Maintenance. Coba lagi nanti.",
             show_alert: true
         });
     }
-    // -----------------------
 
     bot.answerCallbackQuery(query.id).catch(err => console.log("Mengabaikan error 'query too old'"));
 
@@ -366,7 +354,6 @@ bot.on('callback_query', async (query) => {
         return;
     }
 
-    // --- Pilihan Mode ---
     if (data === 'mode_t2v') {
         try {
             await checkUserAccess(userId); 
