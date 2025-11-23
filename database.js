@@ -1,7 +1,5 @@
 const sqlite3 = require('sqlite3').verbose();
-// Gunakan path dari Railway, atau default './database.db' jika dijalankan di PC
-const dbPath = process.env.SQLITE_PATH || './database.db';
-const db = new sqlite3.Database(dbPath);
+const db = new sqlite3.Database('./database.db'); 
 
 // Fungsi ini akan membuat tabel 'users' yang simpel (hanya lisensi)
 function initializeDatabase() {
@@ -17,20 +15,15 @@ function initializeDatabase() {
     });
 }
 
-// Fungsi untuk menambah/memperbarui lisensi pengguna (DIPERBAIKI)
+// Fungsi untuk menambah/memperbarui lisensi pengguna
 function setLicense(userId, username, expirationDateInput) {
     return new Promise((resolve, reject) => {
-        
-        // ===== PERBAIKAN DI SINI =====
-        // Kita paksa format tanggal menjadi YYYY-MM-DD
         let formattedDate;
         try {
             const date = new Date(expirationDateInput);
             if (isNaN(date.getTime())) {
-                // Jika tanggalnya tidak valid (misal: "hello")
                 throw new Error("Format tanggal tidak valid. Gunakan YYYY-MM-DD.");
             }
-            // Ubah '2025-11-4' menjadi '2025-11-04'
             const year = date.getFullYear();
             const month = (date.getMonth() + 1).toString().padStart(2, '0');
             const day = date.getDate().toString().padStart(2, '0');
@@ -38,7 +31,6 @@ function setLicense(userId, username, expirationDateInput) {
         } catch (e) {
             return reject(e);
         }
-        // =============================
 
         const stmt = db.prepare(`
             INSERT INTO users (userId, username, expirationDate)
@@ -48,7 +40,6 @@ function setLicense(userId, username, expirationDateInput) {
                 expirationDate = excluded.expirationDate
         `);
         
-        // Simpan tanggal yang sudah diformat
         stmt.run(userId, username, formattedDate, (err) => {
             if (err) return reject(err);
             resolve(`Lisensi untuk ${username} (${userId}) diatur sampai ${formattedDate}`);
@@ -66,8 +57,6 @@ function checkUserAccess(userId) {
             if (!user) {
                 return reject(new Error("Anda tidak terdaftar. Hubungi admin untuk mendapatkan lisensi."));
             }
-            
-            // Cek jika datanya null (seperti kasus Anda)
             if (!user.expirationDate) {
                  return reject(new Error("Data lisensi Anda rusak (null). Hubungi admin untuk perbaikan."));
             }
@@ -88,7 +77,7 @@ function checkUserAccess(userId) {
     });
 }
 
-// Fungsi untuk melihat semua pengguna
+// Fungsi untuk melihat SEMUA pengguna (termasuk yang mati) - Tetap disimpan jika butuh backup
 function getAllUsers() {
     return new Promise((resolve, reject) => {
         db.all("SELECT userId, expirationDate FROM users ORDER BY expirationDate DESC", [], (err, rows) => {
@@ -97,6 +86,25 @@ function getAllUsers() {
         });
     });
 }
+
+// === FUNGSI BARU: HANYA LIHAT USER AKTIF ===
+function getActiveUsersOnly() {
+    return new Promise((resolve, reject) => {
+        // Ambil tanggal hari ini (YYYY-MM-DD)
+        const date = new Date();
+        const year = date.getFullYear();
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const day = date.getDate().toString().padStart(2, '0');
+        const todayStr = `${year}-${month}-${day}`;
+
+        // Query SQL: Ambil user di mana expirationDate >= hari ini
+        db.all("SELECT userId, expirationDate FROM users WHERE expirationDate >= ? ORDER BY expirationDate ASC", [todayStr], (err, rows) => {
+            if (err) return reject(err);
+            resolve(rows); 
+        });
+    });
+}
+// ===========================================
 
 // Fungsi untuk menghapus pengguna
 function deleteUser(userId) {
@@ -118,10 +126,7 @@ function deleteUser(userId) {
 function addDaysToAllUsers(daysToAdd) {
     return new Promise((resolve, reject) => {
         const modifier = `+${daysToAdd} days`;
-        
-        // Perintah SQL ini sekarang aman karena data di DB sudah YYYY-MM-DD
         const stmt = db.prepare("UPDATE users SET expirationDate = date(expirationDate, ?)");
-
         stmt.run(modifier, function(err) { 
             if (err) return reject(err);
             resolve(`Berhasil menambahkan ${daysToAdd} hari ke ${this.changes} pengguna.`);
@@ -130,13 +135,13 @@ function addDaysToAllUsers(daysToAdd) {
     });
 }
 
-// Inisialisasi database saat file ini di-load
 initializeDatabase();
 
 module.exports = {
     setLicense,
     checkUserAccess,
-    getAllUsers, 
+    getAllUsers,
+    getActiveUsersOnly, // <-- Pastikan ini ada
     deleteUser,
     addDaysToAllUsers 
 };
