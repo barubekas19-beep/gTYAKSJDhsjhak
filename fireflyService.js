@@ -3,22 +3,23 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-// --- URL API (Tidak Berubah) ---
+// --- URL API ---
 const API_GENERATE_TEXT_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoText';
 const API_UPLOAD_URL = 'https://aisandbox-pa.googleapis.com/v1:uploadUserImage';
 const API_GENERATE_IMAGE_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoStartImage';
 const API_STATUS_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchCheckAsyncVideoGenerationStatus';
+// Endpoint baru untuk Upscale (Dari main.js)
+const API_UPSCALE_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoUpsampleVideo'; 
 // ===================================
 
 // ===== TOKEN LOKAL ANDA =====
 const ALL_TOKENS = [
-  "ya29.a0ATi6K2vOaFRu_MKwh3xaWUXLpDgX2rbcZNywlNidNlwcRR3Ozb5ntkB8qa6kLEZset1UR74IJtwd_22QdIkHgnhkEQKqdJMAa1mymVsyU40MvvCKNqC5FkKNB0y3RFmxO6nYwhdPZEc6MQOg2-GPb_RYl9ufjjb5-DBsAUmc0qwsc726Fv14NVGbpOC6jmBaHCEtUssSNzcyjMnNyyYMWlCYYk8Yy-tKyy7te9cpNdI5z0i7mnH9dRUArig9Sdvk5S5C2cQOZJ_pEjZ6YxfAWZ8qTV0vrwa1QoCHGyeOVMrOUpKonTfKGKrC9hisnj29PFg96ADLEauFV2N-eimO-cbhDfltlzKPj1dVh60ivfRXaCgYKAXMSARYSFQHGX2Mi1qINr4XwEenUBr6vkrBuSQ0371",
-  "ya29.a0ATi6K2shS_lmTMhR6IilUgqcdZ40HtmezP1eK8W-BDopOdcUFt-2TCplSQXL2-GnfHPENNm-LVAQ7zEYbiI15L3GDeOgLBga4nBbdAlEOzfxgRZPfIEP5OYPIpVQMnOtN4AEeCNxW3jJ2UhruEYWNW7JO_QffceTBNhDNesepR_GhdoQe-bJWfpuY26fIV24L6HKK2gKOHWfu1gAmt8auFB4lVV-frqUDw_Bs-wQZRiRnETPY9AYfhskarBY6d7ofp6SKlomGQl10-IGXHNJ4YET1mjfblIR98Wr48D1eVF7COlHJevtYHKnnEZ1TZMHnSV1haMvI3STyC18cwvZcBMmP__RINOExmuXtLdEaHR9aCgYKAWcSARESFQHGX2MiiHVgY581Q8NxxQDS59EZCA0371", // "ya29.a0A...TOKEN_ANDA_YANG_KETIGA",
+  "ya29.a0ATi6K2vOaFRu_MKwh3xaWUXLpDgX2rbcZNywlNidNlwcRR3Ozb5ntkB8qa6kLEZset1UR74IJtwd_22QdIkHgnhkEQKqdJMAa1mymVsyU40MvvCKNqC5FkKNB0y3RFmxO6nYwhdPZEc6MQOg2-GPb_RYl9ufjjb5-DBsAUmc0qwsc726Fv14NVGbpOC6jmBaHCEtUssSNzcyjMnNyyYMWlCYYk8Yy-tKyy7te9cpNdI5z0i7mnH9dRUArig9Sdvk5S5C2cQOZJ_pEjZ6YxfAWZ8qTV0vrwa1QoCHGyeOVMrOUpKonTfKGKrC9hisnj29PFg96ADLEauFV2N-eimO-cbhDfltlzKPj1dVh60ivfRXaCgYKAXMSARYSFQHGX2Mi1qINr4XwEenUBr6vkrBuSQ0371"
 ];
 // ===================================
 
 
-// === FUNGSI UTILITAS (Tidak Berubah) ===
+// === FUNGSI UTILITAS ===
 function sanitizeFilename(prompt, extension) {
     const truncated = prompt.length > 50 ? prompt.substring(0, 50) : prompt;
     return truncated.replace(/[^a-z0-9]/gi, '_').toLowerCase() + extension;
@@ -33,11 +34,13 @@ const createGoogleHeaders = (token) => ({
 // ===================================
 
 
-// --- FUNGSI T2V (DIPERBARUI DENGAN CEK 401) ---
+// --- FUNGSI T2V (MODIFIED: Support Upscale 1080p) ---
 async function generateVideo(settings, onStatusUpdate) {
-    const { prompt, aspectRatio, seed: seedInput, videoModelKey: modelKeyInput } = settings;
+    const { prompt, aspectRatio, quality, seed: seedInput, videoModelKey: modelKeyInput } = settings;
     const savePath = path.join(__dirname, 'downloads');
     if (!fs.existsSync(savePath)) fs.mkdirSync(savePath);
+
+    const isUpscale = quality === '1080p'; // Cek apakah user minta 1080p
 
     let lastError = new Error("Semua token gagal atau tidak tersedia.");
 
@@ -48,6 +51,7 @@ async function generateVideo(settings, onStatusUpdate) {
         try {
             const googleHeaders = createGoogleHeaders(currentToken);
             
+            // --- TAHAP 1: GENERATE BASIC (720p) ---
             let apiAspectRatio, apiVideoModelKey;
             if (modelKeyInput) {
                 apiVideoModelKey = modelKeyInput;
@@ -60,7 +64,7 @@ async function generateVideo(settings, onStatusUpdate) {
             const sceneId = uuidv4();
             const cleanPrompt = prompt.replace(/\"/g, '');
 
-            onStatusUpdate(`Memulai T2V (${tokenIdentifier}): "${cleanPrompt.substring(0, 30)}..."`);
+            onStatusUpdate(`Memulai T2V (${tokenIdentifier}): "${cleanPrompt.substring(0, 30)}..." (Tahap 1: Generate)`);
             
             const generateBody = {
               "clientContext": { "projectId": "d4b08afb-1a05-4513-a216-f3a7ffaf6147", "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
@@ -68,7 +72,6 @@ async function generateVideo(settings, onStatusUpdate) {
                   "aspectRatio": apiAspectRatio, 
                   "seed": seed, 
                   "textInput": { "prompt": cleanPrompt },
-                  // Blok 'promptExpansionInput' DIHAPUS di T2V
                   "videoModelKey": apiVideoModelKey, 
                   "metadata": { "sceneId": sceneId }
               } ]
@@ -76,24 +79,90 @@ async function generateVideo(settings, onStatusUpdate) {
 
             const genResponse = await axios.post(API_GENERATE_TEXT_URL, generateBody, { headers: googleHeaders });
             
-            const operationName = genResponse.data?.operations?.[0]?.operation?.name;
-            const responseSceneId = genResponse.data?.operations?.[0]?.sceneId;
+            let operationName = genResponse.data?.operations?.[0]?.operation?.name;
+            let responseSceneId = genResponse.data?.operations?.[0]?.sceneId;
             if (!operationName || !responseSceneId) throw new Error(`Gagal memulai generate: ${JSON.stringify(genResponse.data)}`);
             
-            onStatusUpdate("Menunggu video... (Ini bisa 1-3 menit)");
+            onStatusUpdate("Menunggu video dasar (720p)... (1-2 menit)");
             let videoUrl = null;
+            let fullMetadata = null; // Kita butuh ini untuk Upscale
+
             for (let attempts = 1; attempts <= 30; attempts++) {
                 await new Promise(resolve => setTimeout(resolve, 10000));
                 const statusBody = { "operations": [ { "operation": { "name": operationName }, "sceneId": responseSceneId, "status": "MEDIA_GENERATION_STATUS_PENDING" } ] };
                 const statusResponse = await axios.post(API_STATUS_URL, statusBody, { headers: googleHeaders });
-                const fifeUrl = statusResponse.data?.operations?.[0]?.operation?.metadata?.video?.fifeUrl;
-                if (fifeUrl) { videoUrl = fifeUrl; break; }
-                const failStatus = statusResponse.data?.operations?.[0]?.status;
-                if (failStatus === 'MEDIA_GENERATION_STATUS_FAILED') throw new Error(statusResponse.data.operations[0].operation?.error?.message || "Server Google gagal memproses video.");
+                
+                const opResult = statusResponse.data?.operations?.[0];
+                const fifeUrl = opResult?.operation?.metadata?.video?.fifeUrl;
+                
+                if (fifeUrl) { 
+                    videoUrl = fifeUrl; 
+                    fullMetadata = opResult.operation.metadata; // Simpan metadata
+                    break; 
+                }
+                const failStatus = opResult?.status;
+                if (failStatus === 'MEDIA_GENERATION_STATUS_FAILED') throw new Error(opResult.operation?.error?.message || "Server Google gagal memproses video.");
             }
-            if (!videoUrl) throw new Error('Waktu tunggu habis saat menunggu Google Veo.');
+            if (!videoUrl) throw new Error('Waktu tunggu habis saat menunggu video dasar.');
 
-            onStatusUpdate("Mengunduh video...");
+
+            // --- TAHAP 2: UPSCALE (Jika User Pilih 1080p) ---
+            if (isUpscale && fullMetadata) {
+                // Ambil ID dari metadata (logic dari main.js)
+                const idToUse = fullMetadata.name || fullMetadata.video?.mediaGenerationId || fullMetadata.video?.mediaId || fullMetadata.id;
+                
+                if (idToUse) {
+                    onStatusUpdate("🎬 Memulai Upscale ke 1080p... (Tahap 2)");
+                    
+                    const upscaleBody = {
+                        "clientContext": { "projectId": "d4b08afb-1a05-4513-a216-f3a7ffaf6147", "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+                        "requests": [{
+                            "aspectRatio": apiAspectRatio,
+                            "seed": seed,
+                            "videoModelKey": "veo_2_1080p_upsampler_8s", // Model Upscale dari main.js
+                            "videoInput": { 
+                                "mediaId": idToUse 
+                            },
+                            "metadata": { "sceneId": responseSceneId }
+                        }]
+                    };
+
+                    const upscaleResponse = await axios.post(API_UPSCALE_URL, upscaleBody, { headers: googleHeaders });
+                    
+                    if (upscaleResponse.data?.operations?.[0]) {
+                        operationName = upscaleResponse.data.operations[0].operation.name;
+                        responseSceneId = upscaleResponse.data.operations[0].sceneId || responseSceneId;
+                        
+                        onStatusUpdate("Menunggu render 1080p... (1-2 menit lagi)");
+                        
+                        let upscaleSuccess = false;
+                        for (let upAttempts = 1; upAttempts <= 40; upAttempts++) {
+                            await new Promise(resolve => setTimeout(resolve, 10000));
+                            const upStatusBody = { "operations": [ { "operation": { "name": operationName }, "sceneId": responseSceneId, "status": "MEDIA_GENERATION_STATUS_PENDING" } ] };
+                            const upStatusResponse = await axios.post(API_STATUS_URL, upStatusBody, { headers: googleHeaders });
+                            
+                            const upOpResult = upStatusResponse.data?.operations?.[0];
+                            const upFifeUrl = upOpResult?.operation?.metadata?.video?.fifeUrl;
+                            
+                            if (upFifeUrl) {
+                                videoUrl = upFifeUrl; // Update URL ke versi 1080p
+                                upscaleSuccess = true;
+                                break;
+                            }
+                            if (upOpResult?.status === 'MEDIA_GENERATION_STATUS_FAILED') break; // Gagal upscale, pakai yang 720p aja
+                        }
+                        
+                        if (!upscaleSuccess) {
+                            onStatusUpdate("⚠️ Upscale gagal/timeout. Mengirim versi 720p.");
+                        } else {
+                            onStatusUpdate("✅ Upscale 1080p Berhasil!");
+                        }
+                    }
+                }
+            }
+
+
+            onStatusUpdate("Mengunduh video final...");
             const videoResponse = await axios.get(videoUrl, { responseType: 'arraybuffer' });
             const finalFilename = sanitizeFilename(prompt, '.mp4');
             const finalPath = path.join(savePath, finalFilename);
@@ -107,12 +176,9 @@ async function generateVideo(settings, onStatusUpdate) {
             let statusCode = error.response ? error.response.status : 0;
             lastError = new Error(`(${tokenIdentifier}): ${errorMsg}`); 
 
-            // ===== PERBAIKAN DI SINI =====
-            // Tambahkan 'statusCode === 401' (Unauthenticated) ke kondisi retry
             if (statusCode === 401 || statusCode === 403 || statusCode === 429) {
                 onStatusUpdate(`${tokenIdentifier} gagal (Token Mati/Limit). Pindah ke token berikutnya...`);
             } else {
-            // =============================
                 if (errorMsg.includes("video_unsafe") || errorMsg.includes("PROMPT_REJECTED")) {
                     throw new Error(`Prompt ditolak oleh Google karena tidak aman (unsafe).`);
                 }
@@ -123,7 +189,7 @@ async function generateVideo(settings, onStatusUpdate) {
     throw lastError;
 }
 
-// --- FUNGSI I2V (DIPERBARUI DENGAN CEK 401) ---
+// --- FUNGSI I2V (Tidak berubah, hanya disesuaikan token rotation) ---
 async function generateVideoFromImage(settings, onStatusUpdate) {
     const { prompt, aspectRatio, imageBuffer, seed: seedInput, videoModelKey: modelKeyInput } = settings;
     const savePath = path.join(__dirname, 'downloads');
@@ -205,12 +271,9 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
             let statusCode = error.response ? error.response.status : 0;
             lastError = new Error(`(${tokenIdentifier}): ${errorMsg}`);
 
-            // ===== PERBAIKAN DI SINI =====
-            // Tambahkan 'statusCode === 401' (Unauthenticated) ke kondisi retry
             if (statusCode === 401 || statusCode === 403 || statusCode === 429) {
                 onStatusUpdate(`${tokenIdentifier} gagal (Token Mati/Limit). Pindah ke token berikutnya...`);
             } else {
-            // =============================
                 if (errorMsg.includes("video_unsafe") || errorMsg.includes("PROMPT_REJECTED")) {
                     throw new Error(`Prompt ditolak oleh Google karena tidak aman (unsafe).`);
                 }
@@ -226,34 +289,3 @@ module.exports = {
     generateVideo,
     generateVideoFromImage
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
