@@ -11,12 +11,14 @@ const API_STATUS_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchCheckA
 const API_UPSCALE_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchAsyncGenerateVideoUpsampleVideo'; 
 // ===================================
 
-// ===== TOKEN LOKAL ANDA (DARI KODE 2) =====
+// ===== TOKEN LOKAL ANDA =====
 const ALL_TOKENS = [
   "ya29.a0ATi6K2tg0XNkl1aEbCAD3E-M3oKoorI6DGtt7PAsS909oVtKWUu9cLJqxj2eKS0y0eKmOggcmkTkHsoEgB-0ZInscgxVS1KCDQgdycWHr1KO4pfbSAbe68LIvYojnxOOCMSAPNegT_wUfzGnVzg7RXoXazbKqRz-jCivFxyDM7FclpYMwDIR29Mx8AtUG-zONxYbIj2yM3JGJ0QfAf5JCdBsjHxmB-Rs5vkulXW-Bcg6vkfuLmmiJhTSY9EUGN2XotzdOepP5uQSd__YV_ZvvG5W9xj50vZHpSji5H5ivUCd9LhWCsWJahoH5W49ct2315KfkvWe_NuHozjAR-u9CzvXfK3Hq64tzMlAhtsSgwaCgYKAVoSARcSFQHGX2MiU9Ee3oKESgHo_xpf9yuaWw0369"
 ];
 // ===================================
 
+// Project ID Master (Gunakan satu ID ini untuk SEMUA proses)
+const MASTER_PROJECT_ID = "d4b08afb-1a05-4513-a216-f3a7ffaf6147";
 
 // === FUNGSI UTILITAS ===
 function sanitizeFilename(prompt, extension) {
@@ -33,7 +35,7 @@ const createGoogleHeaders = (token) => ({
 // ===================================
 
 
-// --- FUNGSI T2V (Text to Video - Sudah Fix) ---
+// --- FUNGSI T2V (Text to Video) ---
 async function generateVideo(settings, onStatusUpdate) {
     const { prompt, aspectRatio, quality, seed: seedInput, videoModelKey: modelKeyInput } = settings;
     const savePath = path.join(__dirname, 'downloads');
@@ -65,7 +67,7 @@ async function generateVideo(settings, onStatusUpdate) {
             onStatusUpdate(`Memulai T2V (${tokenIdentifier}): "${cleanPrompt.substring(0, 30)}..." (Tahap 1: Generate 720p)`);
             
             const generateBody = {
-              "clientContext": { "projectId": "d4b08afb-1a05-4513-a216-f3a7ffaf6147", "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+              "clientContext": { "projectId": MASTER_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
               "requests": [ {
                   "aspectRatio": apiAspectRatio, 
                   "seed": seed, 
@@ -110,7 +112,7 @@ async function generateVideo(settings, onStatusUpdate) {
                 if (idToUse) {
                     onStatusUpdate(`🎬 Memulai Upscale ke 1080p...`);
                     const upscaleBody = {
-                        "clientContext": { "projectId": "d4b08afb-1a05-4513-a216-f3a7ffaf6147", "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+                        "clientContext": { "projectId": MASTER_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
                         "requests": [{
                             "aspectRatio": apiAspectRatio, 
                             "seed": Math.floor(Math.random() * 20000), 
@@ -143,7 +145,7 @@ async function generateVideo(settings, onStatusUpdate) {
                             else onStatusUpdate("✅ Upscale 1080p Berhasil!");
                         }
                     } catch (errUpscale) {
-                        console.error("Upscale Request Error:", errUpscale.response ? JSON.stringify(errUpscale.response.data) : errUpscale.message);
+                        console.error("Upscale Request Error:", errUpscale.message);
                         onStatusUpdate("⚠️ Gagal Upscale. Mengirim versi 720p.");
                     }
                 }
@@ -172,17 +174,13 @@ async function generateVideo(settings, onStatusUpdate) {
     throw lastError;
 }
 
-// --- FUNGSI I2V (Image to Video - FIX LENGKAP) ---
+// --- FUNGSI I2V (Image to Video - FIX 404) ---
 async function generateVideoFromImage(settings, onStatusUpdate) {
     const { prompt, aspectRatio, imageBuffer, quality, seed: seedInput, videoModelKey: modelKeyInput } = settings;
     const savePath = path.join(__dirname, 'downloads');
     if (!fs.existsSync(savePath)) fs.mkdirSync(savePath);
 
     const isUpscale = quality === '1080p';
-
-    // === CONFIG ID SESUAI KODE 1 (YANG BERHASIL) ===
-    const ID_UNTUK_GENERATE = "c971e668-3a9a-4ef0-be19-12e873af1af9"; // Wajib untuk Veo I2V
-    const ID_UNTUK_UPSCALE  = "d4b08afb-1a05-4513-a216-f3a7ffaf6147"; // Wajib untuk Upscaler
 
     let lastError = new Error("Semua token gagal atau tidak tersedia.");
 
@@ -201,23 +199,30 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
             const sceneId = uuidv4();
             
             // --- LANGKAH A: UPLOAD GAMBAR ---
-            // Fix: Hapus Project ID di step ini (biarkan Asset Manager Google yang handle)
+            // PERBAIKAN UTAMA: Tambahkan 'projectId' saat upload agar gambar tersimpan di tempat yang benar!
             onStatusUpdate(`(${tokenIdentifier}) Mengunggah gambar referensi...`);
             const imageBase64 = imageBuffer.toString('base64');
             const uploadBody = {
               "imageInput": { "rawImageBytes": imageBase64, "mimeType": "image/jpeg", "isUserUploaded": true, "aspectRatio": "IMAGE_ASPECT_RATIO_LANDSCAPE" },
-              "clientContext": { "tool": "ASSET_MANAGER" }
+              "clientContext": { 
+                  "tool": "ASSET_MANAGER",
+                  "projectId": MASTER_PROJECT_ID // <--- INI KUNCI FIX 404
+              }
             };
             const uploadResponse = await axios.post(API_UPLOAD_URL, uploadBody, { headers: googleHeaders });
             const mediaId = uploadResponse.data?.mediaGenerationId?.mediaGenerationId;
             if (!mediaId) throw new Error("Gagal mendapatkan Media ID dari gambar yang diupload.");
 
             // --- LANGKAH B: GENERATE VIDEO (720p) ---
-            // Fix: Gunakan ID_UNTUK_GENERATE (c971...)
+            // Gunakan Project ID yang SAMA dengan upload
             const i2vPrompt = prompt || "best camera movement base on picture"; 
             onStatusUpdate(`Memulai I2V (${tokenIdentifier}): "${i2vPrompt.substring(0, 30)}..." (Tahap 1: Generate 720p)`);
             const generateBody = {
-              "clientContext": { "projectId": ID_UNTUK_GENERATE, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+              "clientContext": { 
+                  "projectId": MASTER_PROJECT_ID, // SAMA dengan uploadBody
+                  "tool": "PINHOLE", 
+                  "userPaygateTier": "PAYGATE_TIER_TWO" 
+              },
               "requests": [ {
                   "aspectRatio": generateAspectRatio, "seed": seed, "textInput": { "prompt": i2vPrompt },
                   "promptExpansionInput": {
@@ -258,19 +263,16 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
             if (!videoUrl) throw new Error('Waktu tunggu habis saat menunggu Google Veo.');
 
 
-            // --- TAHAP 2: UPSCALE (Logika sama persis dengan T2V) ---
+            // --- TAHAP 2: UPSCALE ---
             if (isUpscale && fullMetadata) {
-                // Menggunakan logika fallback ID yang sama
                 const idToUse = fullMetadata.video?.mediaGenerationId || fullMetadata.video?.mediaId || fullMetadata.id || fullMetadata.name;
                 
                 if (idToUse) {
                     onStatusUpdate(`🎬 Memulai Upscale ke 1080p...`);
-                    
-                    // Fix: Gunakan ID_UNTUK_UPSCALE (d4b0...)
                     const upscaleBody = {
-                        "clientContext": { "projectId": ID_UNTUK_UPSCALE, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+                        "clientContext": { "projectId": MASTER_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
                         "requests": [{
-                            "aspectRatio": generateAspectRatio, // Tetap kirim ratio (16:9 only)
+                            "aspectRatio": generateAspectRatio, 
                             "seed": Math.floor(Math.random() * 20000), 
                             "videoModelKey": "veo_2_1080p_upsampler_8s", 
                             "videoInput": { "mediaId": idToUse },
@@ -284,18 +286,14 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
                         if (upscaleResponse.data?.operations?.[0]) {
                             operationName = upscaleResponse.data.operations[0].operation.name;
                             responseSceneId = upscaleResponse.data.operations[0].sceneId || responseSceneId;
-                            
                             onStatusUpdate("Menunggu render 1080p... (1-2 menit lagi)");
-                            
                             let upscaleSuccess = false;
                             for (let upAttempts = 1; upAttempts <= 60; upAttempts++) {
                                 await new Promise(resolve => setTimeout(resolve, 10000));
                                 const upStatusBody = { "operations": [ { "operation": { "name": operationName }, "sceneId": responseSceneId, "status": "MEDIA_GENERATION_STATUS_PENDING" } ] };
                                 const upStatusResponse = await axios.post(API_STATUS_URL, upStatusBody, { headers: googleHeaders });
-                                
                                 const upOpResult = upStatusResponse.data?.operations?.[0];
                                 const upFifeUrl = upOpResult?.operation?.metadata?.video?.fifeUrl;
-                                
                                 if (upFifeUrl) {
                                     videoUrl = upFifeUrl; 
                                     upscaleSuccess = true;
@@ -303,7 +301,6 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
                                 }
                                 if (upOpResult?.status === 'MEDIA_GENERATION_STATUS_FAILED') break;
                             }
-                            
                             if (!upscaleSuccess) onStatusUpdate("⚠️ Upscale timeout. Mengirim versi 720p.");
                             else onStatusUpdate("✅ Upscale 1080p Berhasil!");
                         }
@@ -314,7 +311,6 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
                 }
             }
 
-
             onStatusUpdate("Mengunduh video final...");
             const videoResponse = await axios.get(videoUrl, { responseType: 'arraybuffer' });
             const finalFilename = sanitizeFilename(i2vPrompt, '.mp4');
@@ -322,7 +318,7 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
             fs.writeFileSync(finalPath, videoResponse.data);
             
             onStatusUpdate("Selesai!");
-            return finalPath; // SUKSES!
+            return finalPath; 
 
         } catch (error) {
             let errorMsg = error.response ? JSON.stringify(error.response.data) : error.message;
