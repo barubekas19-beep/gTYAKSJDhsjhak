@@ -17,8 +17,8 @@ const ALL_TOKENS = [
 ];
 // ===================================
 
-// ID YANG TERBUKTI WORKING UNTUK TOKEN INI
-const WORKING_PROJECT_ID = "d4b08afb-1a05-4513-a216-f3a7ffaf6147";
+// PROJEK ID MASTER (Yang terbukti jalan di T2V)
+const MASTER_PROJECT_ID = "d4b08afb-1a05-4513-a216-f3a7ffaf6147";
 
 // === FUNGSI UTILITAS ===
 function sanitizeFilename(prompt, extension) {
@@ -67,7 +67,7 @@ async function generateVideo(settings, onStatusUpdate) {
             onStatusUpdate(`Memulai T2V (${tokenIdentifier}): "${cleanPrompt.substring(0, 30)}..." (Tahap 1: Generate 720p)`);
             
             const generateBody = {
-              "clientContext": { "projectId": WORKING_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+              "clientContext": { "projectId": MASTER_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
               "requests": [ {
                   "aspectRatio": apiAspectRatio, 
                   "seed": seed, 
@@ -112,7 +112,7 @@ async function generateVideo(settings, onStatusUpdate) {
                 if (idToUse) {
                     onStatusUpdate(`🎬 Memulai Upscale ke 1080p...`);
                     const upscaleBody = {
-                        "clientContext": { "projectId": WORKING_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+                        "clientContext": { "projectId": MASTER_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
                         "requests": [{
                             "aspectRatio": apiAspectRatio, 
                             "seed": Math.floor(Math.random() * 20000), 
@@ -174,7 +174,7 @@ async function generateVideo(settings, onStatusUpdate) {
     throw lastError;
 }
 
-// --- FUNGSI I2V (Image to Video - FIX FINAL) ---
+// --- FUNGSI I2V (Image to Video - RESTORE ORIGINAL UPLOAD LOGIC) ---
 async function generateVideoFromImage(settings, onStatusUpdate) {
     const { prompt, aspectRatio, imageBuffer, quality, seed: seedInput, videoModelKey: modelKeyInput } = settings;
     const savePath = path.join(__dirname, 'downloads');
@@ -199,12 +199,12 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
             const sceneId = uuidv4();
             
             // --- LANGKAH A: UPLOAD GAMBAR ---
-            // Gunakan Tool ASSET_MANAGER tanpa Project ID (Default)
+            // KEMBALI KE ASAL: Hapus Project ID di sini agar gambar tidak nyasar ke folder private
             onStatusUpdate(`(${tokenIdentifier}) Mengunggah gambar referensi...`);
             const imageBase64 = imageBuffer.toString('base64');
             const uploadBody = {
               "imageInput": { "rawImageBytes": imageBase64, "mimeType": "image/jpeg", "isUserUploaded": true, "aspectRatio": "IMAGE_ASPECT_RATIO_LANDSCAPE" },
-              "clientContext": { "tool": "ASSET_MANAGER" }
+              "clientContext": { "tool": "ASSET_MANAGER" } // TANPA Project ID
             };
             const uploadResponse = await axios.post(API_UPLOAD_URL, uploadBody, { headers: googleHeaders });
             const mediaId = uploadResponse.data?.mediaGenerationId?.mediaGenerationId;
@@ -213,17 +213,12 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
             // --- LANGKAH B: GENERATE VIDEO (720p) ---
             const i2vPrompt = prompt || "best camera movement base on picture"; 
             onStatusUpdate(`Memulai I2V (${tokenIdentifier}): "${i2vPrompt.substring(0, 30)}..." (Tahap 1: Generate 720p)`);
-            
             const generateBody = {
-              // Gunakan Project ID T2V yang kita tahu pasti bekerja (d4b0...)
-              "clientContext": { "projectId": WORKING_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+              "clientContext": { "projectId": MASTER_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
               "requests": [ {
                   "aspectRatio": generateAspectRatio, "seed": seed, "textInput": { "prompt": i2vPrompt },
-                  // === PERUBAHAN KRUSIAL: HAPUS promptExpansionInput ===
-                  // Bagian ini menyebabkan 404 karena Template ID-nya beda project
-                  "videoModelKey": apiVideoModelKey, 
-                  "startImage": { "mediaId": mediaId }, 
-                  "metadata": { "sceneId": sceneId }
+                  // HAPUS promptExpansionInput (Template) KARENA SERING MENYEBABKAN 404 JIKA ID TIDAK COCOK
+                  "videoModelKey": apiVideoModelKey, "startImage": { "mediaId": mediaId }, "metadata": { "sceneId": sceneId }
               } ]
             };
 
@@ -263,7 +258,7 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
                 if (idToUse) {
                     onStatusUpdate(`🎬 Memulai Upscale ke 1080p...`);
                     const upscaleBody = {
-                        "clientContext": { "projectId": WORKING_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+                        "clientContext": { "projectId": MASTER_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
                         "requests": [{
                             "aspectRatio": generateAspectRatio, 
                             "seed": Math.floor(Math.random() * 20000), 
