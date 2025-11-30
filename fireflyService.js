@@ -211,7 +211,7 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
             const i2vPrompt = prompt || "best camera movement base on picture"; 
             onStatusUpdate(`Memulai I2V (${tokenIdentifier}): "${i2vPrompt.substring(0, 30)}..." (Tahap 1: Generate 720p)`);
             const generateBody = {
-              "clientContext": { "projectId": "c971e668-3a9a-4ef0-be19-12e873af1af9", "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+              "clientContext": { "projectId": "d4b08afb-1a05-4513-a216-f3a7ffaf6147", "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
               "requests": [ {
                   "aspectRatio": generateAspectRatio, "seed": seed, "textInput": { "prompt": i2vPrompt },
                   "promptExpansionInput": {
@@ -340,6 +340,7 @@ module.exports = {
     generateVideo,
     generateVideoFromImage
 };
+
 
 
 
