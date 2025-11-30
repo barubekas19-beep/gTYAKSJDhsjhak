@@ -17,8 +17,8 @@ const ALL_TOKENS = [
 ];
 // ===================================
 
-// Project ID Master (Gunakan satu ID ini untuk SEMUA proses)
-const MASTER_PROJECT_ID = "d4b08afb-1a05-4513-a216-f3a7ffaf6147";
+// ID YANG TERBUKTI WORKING UNTUK TOKEN INI
+const WORKING_PROJECT_ID = "d4b08afb-1a05-4513-a216-f3a7ffaf6147";
 
 // === FUNGSI UTILITAS ===
 function sanitizeFilename(prompt, extension) {
@@ -67,7 +67,7 @@ async function generateVideo(settings, onStatusUpdate) {
             onStatusUpdate(`Memulai T2V (${tokenIdentifier}): "${cleanPrompt.substring(0, 30)}..." (Tahap 1: Generate 720p)`);
             
             const generateBody = {
-              "clientContext": { "projectId": MASTER_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+              "clientContext": { "projectId": WORKING_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
               "requests": [ {
                   "aspectRatio": apiAspectRatio, 
                   "seed": seed, 
@@ -112,7 +112,7 @@ async function generateVideo(settings, onStatusUpdate) {
                 if (idToUse) {
                     onStatusUpdate(`🎬 Memulai Upscale ke 1080p...`);
                     const upscaleBody = {
-                        "clientContext": { "projectId": MASTER_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+                        "clientContext": { "projectId": WORKING_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
                         "requests": [{
                             "aspectRatio": apiAspectRatio, 
                             "seed": Math.floor(Math.random() * 20000), 
@@ -174,7 +174,7 @@ async function generateVideo(settings, onStatusUpdate) {
     throw lastError;
 }
 
-// --- FUNGSI I2V (Image to Video - FIX 404) ---
+// --- FUNGSI I2V (Image to Video - FIX FINAL) ---
 async function generateVideoFromImage(settings, onStatusUpdate) {
     const { prompt, aspectRatio, imageBuffer, quality, seed: seedInput, videoModelKey: modelKeyInput } = settings;
     const savePath = path.join(__dirname, 'downloads');
@@ -199,38 +199,31 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
             const sceneId = uuidv4();
             
             // --- LANGKAH A: UPLOAD GAMBAR ---
-            // PERBAIKAN UTAMA: Tambahkan 'projectId' saat upload agar gambar tersimpan di tempat yang benar!
+            // Gunakan Tool ASSET_MANAGER tanpa Project ID (Default)
             onStatusUpdate(`(${tokenIdentifier}) Mengunggah gambar referensi...`);
             const imageBase64 = imageBuffer.toString('base64');
             const uploadBody = {
               "imageInput": { "rawImageBytes": imageBase64, "mimeType": "image/jpeg", "isUserUploaded": true, "aspectRatio": "IMAGE_ASPECT_RATIO_LANDSCAPE" },
-              "clientContext": { 
-                  "tool": "ASSET_MANAGER",
-                  "projectId": MASTER_PROJECT_ID // <--- INI KUNCI FIX 404
-              }
+              "clientContext": { "tool": "ASSET_MANAGER" }
             };
             const uploadResponse = await axios.post(API_UPLOAD_URL, uploadBody, { headers: googleHeaders });
             const mediaId = uploadResponse.data?.mediaGenerationId?.mediaGenerationId;
             if (!mediaId) throw new Error("Gagal mendapatkan Media ID dari gambar yang diupload.");
 
             // --- LANGKAH B: GENERATE VIDEO (720p) ---
-            // Gunakan Project ID yang SAMA dengan upload
             const i2vPrompt = prompt || "best camera movement base on picture"; 
             onStatusUpdate(`Memulai I2V (${tokenIdentifier}): "${i2vPrompt.substring(0, 30)}..." (Tahap 1: Generate 720p)`);
+            
             const generateBody = {
-              "clientContext": { 
-                  "projectId": MASTER_PROJECT_ID, // SAMA dengan uploadBody
-                  "tool": "PINHOLE", 
-                  "userPaygateTier": "PAYGATE_TIER_TWO" 
-              },
+              // Gunakan Project ID T2V yang kita tahu pasti bekerja (d4b0...)
+              "clientContext": { "projectId": WORKING_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
               "requests": [ {
                   "aspectRatio": generateAspectRatio, "seed": seed, "textInput": { "prompt": i2vPrompt },
-                  "promptExpansionInput": {
-                    "prompt": "best camera movement base on picture", "seed": seed,
-                    "templateId": "0TNlfC6bSF", 
-                    "imageInputs": [ { "mediaId": mediaId, "imageUsageType": "IMAGE_USAGE_TYPE_UNSPECIFIED" } ]
-                  },
-                  "videoModelKey": apiVideoModelKey, "startImage": { "mediaId": mediaId }, "metadata": { "sceneId": sceneId }
+                  // === PERUBAHAN KRUSIAL: HAPUS promptExpansionInput ===
+                  // Bagian ini menyebabkan 404 karena Template ID-nya beda project
+                  "videoModelKey": apiVideoModelKey, 
+                  "startImage": { "mediaId": mediaId }, 
+                  "metadata": { "sceneId": sceneId }
               } ]
             };
 
@@ -270,7 +263,7 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
                 if (idToUse) {
                     onStatusUpdate(`🎬 Memulai Upscale ke 1080p...`);
                     const upscaleBody = {
-                        "clientContext": { "projectId": MASTER_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
+                        "clientContext": { "projectId": WORKING_PROJECT_ID, "tool": "PINHOLE", "userPaygateTier": "PAYGATE_TIER_TWO" },
                         "requests": [{
                             "aspectRatio": generateAspectRatio, 
                             "seed": Math.floor(Math.random() * 20000), 
@@ -282,7 +275,6 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
 
                     try {
                         const upscaleResponse = await axios.post(API_UPSCALE_URL, upscaleBody, { headers: googleHeaders });
-                        
                         if (upscaleResponse.data?.operations?.[0]) {
                             operationName = upscaleResponse.data.operations[0].operation.name;
                             responseSceneId = upscaleResponse.data.operations[0].sceneId || responseSceneId;
@@ -338,7 +330,6 @@ async function generateVideoFromImage(settings, onStatusUpdate) {
     throw lastError;
 }
 
-// Ekspor kedua fungsi
 module.exports = {
     generateVideo,
     generateVideoFromImage
