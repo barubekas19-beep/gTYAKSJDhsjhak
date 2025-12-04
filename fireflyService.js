@@ -13,7 +13,7 @@ const API_UPSCALE_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchAsync
 
 // ===== TOKEN LOKAL ANDA =====
 const ALL_TOKENS = [
-  "ya29.a0ATi6K2scrDpaI2kbH6H1U-ILts5xo9K4naKQ0gWX2EwgX3htq81Un4C9t3t5uCZw0wJkZ9p3l8yf4Lst1G-v0BPjtnDlQdU4V6BvoOBc8vUThO6nfynsKb0Y3PRl-0FnKX9goBUSUfO9OKdCrXsL2qq32LgIrG8Hzf94g3TK82QkCOhkCRgF2l7CAJesZtHub7AV2nvfM_97m2wb5LNDiTgT0bI7EJPTuJVYtHAqIt_XozIEWU7s1EjE_dhFFGhc8DBmceLM9VrrU_c2DhBB4tL043bRCFLOuT6dyzu85m-I1vm9TdkvFbiV57fi5HNEYZLgeDBRAGR-1wMa3Q3H7srgzoK3sVkuCNXpDWEgxwaCgYKAVQSARMSFQHGX2MiXnFOkIx-pu1ayW4BdmQfZA0369"
+  "Bearer ya29.a0ATi6K2u4PL5KjsGkFGy9KE_Qm16WnfptQR3IewdZ2uZbedzr-SyZx9EkC_hCIKjsK17wPRHIqYuBE7M-eeN10p-DPUPHYPOpfL_iFjzjjZMVVlDEsLM5he3qfsNYPHC9yjo4S2wi8BPjMHrz9m3REkXuwas-cjnqwIU2F_Fr0QMKJss-WbtbpWhdKwKqX85cbea1OCHANManQWdiCgAhTrUxyBh5exRCwe-OPry0nVNFmhbWP8HzcV1f_Uu-ab98IEXClIwCuq99EBqFVz9OGxk25iP3FCe1WEWOtlIchOUkJQ1s4mIGzOyfUtku8f9RCaRBftIQrFoB7hEl_6RelPmvTRSszniYdzct-QAbpgEaCgYKAZMSARISFQHGX2MiNMClYUkcnsqiYz-TBVRNEA0370"
 ];
 // ===================================
 
@@ -329,6 +329,7 @@ module.exports = {
     generateVideo,
     generateVideoFromImage
 };
+
 
 
 
