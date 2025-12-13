@@ -1,36 +1,122 @@
 const sqlite3 = require('sqlite3').verbose();
-const db = new sqlite3.Database(process.env.SQLITE_PATH || './database.db'); // Menggunakan Path Railway jika ada
+const db = new sqlite3.Database(process.env.SQLITE_PATH || './database.db');
 
-// Fungsi ini akan membuat tabel 'users' yang simpel (hanya lisensi)
+// Inisialisasi Database
 function initializeDatabase() {
     db.serialize(() => {
+        // Tabel users dengan tambahan kolom 'credits' untuk trial
         db.run(`
             CREATE TABLE IF NOT EXISTS users (
                 userId TEXT PRIMARY KEY,
                 username TEXT,
-                expirationDate TEXT
+                expirationDate TEXT,
+                credits INTEGER DEFAULT 0 
             )
         `);
-        console.log("Database 'users' (Hanya Lisensi) siap digunakan.");
+
+        // Migrasi aman: Tambah kolom credits jika database lama belum punya
+        db.run("ALTER TABLE users ADD COLUMN credits INTEGER DEFAULT 0", (err) => {
+            // Error diabaikan jika kolom sudah ada
+        });
+        
+        console.log("Database siap (Sistem Sewa + Trial 5x).");
     });
 }
 
-// Fungsi untuk menambah/memperbarui lisensi pengguna
+// FUNGSI 1: Daftarkan User Baru (Otomatis dapat 5 Credit Trial)
+function registerTrialUser(userId, username) {
+    return new Promise((resolve, reject) => {
+        db.get("SELECT userId FROM users WHERE userId = ?", [userId], (err, row) => {
+            if (err) return reject(err);
+            
+            // Jika user belum ada di database, buat baru dengan 5 kredit
+            if (!row) {
+                const stmt = db.prepare("INSERT INTO users (userId, username, expirationDate, credits) VALUES (?, ?, ?, ?)");
+                // expirationDate NULL (belum sewa), Credits 5 (Trial)
+                stmt.run(userId, username, null, 5, (err) => {
+                    if (err) return reject(err);
+                    resolve(true); // User baru sukses dibuat
+                });
+                stmt.finalize();
+            } else {
+                resolve(false); // User sudah ada
+            }
+        });
+    });
+}
+
+// FUNGSI 2: Cek Akses (Prioritas: Sewa Waktu -> Baru Kuota Trial)
+function checkUserAccess(userId) {
+    return new Promise((resolve, reject) => {
+        db.get("SELECT * FROM users WHERE userId = ?", [userId], (err, user) => {
+            if (err) return reject(err);
+            
+            // Jika user tidak ada di database sama sekali
+            if (!user) return reject(new Error("Anda belum terdaftar. Ketik /start untuk mengambil trial 5x gratis."));
+
+            // A. CEK MASA AKTIF (SEWA) - PRIORITAS UTAMA
+            if (user.expirationDate) {
+                const today = new Date();
+                const expiration = new Date(user.expirationDate);
+                // Reset jam agar hitungan per hari akurat
+                today.setHours(0,0,0,0); 
+                expiration.setHours(0,0,0,0);
+
+                if (today <= expiration) {
+                    const sisaHari = Math.ceil((expiration - today) / (1000 * 60 * 60 * 24)) + 1; // +1 biar hari H terhitung
+                    // Jika masih dalam masa sewa, lolos tanpa cek kredit
+                    return resolve({ type: 'premium', msg: `💎 **Premium Akses**\nSisa masa aktif: ${sisaHari} hari (Unlimited Generate).` });
+                }
+            }
+
+            // B. JIKA MASA SEWA HABIS/BELUM BELI -> CEK TRIAL
+            if (user.credits > 0) {
+                return resolve({ type: 'trial', msg: `🎁 **Mode Trial Gratis**\nSisa kuota: ${user.credits}x generate lagi.` });
+            }
+
+            // C. JIKA TIDAK ADA KEDUANYA
+            return reject(new Error("Masa sewa habis & Kuota trial 0.\nSilakan hubungi admin untuk sewa akses harian/bulanan, atau gabung grup untuk info promo."));
+        });
+    });
+}
+
+// FUNGSI 3: Potong Kredit (Hanya memotong jika user TIDAK punya masa aktif)
+function deductCredit(userId) {
+    return new Promise((resolve, reject) => {
+        db.get("SELECT * FROM users WHERE userId = ?", [userId], (err, user) => {
+            if (err) return reject(err);
+            if (!user) return resolve();
+
+            // Cek Masa Aktif dulu
+            if (user.expirationDate) {
+                const today = new Date();
+                const expiration = new Date(user.expirationDate);
+                today.setHours(0,0,0,0); expiration.setHours(0,0,0,0);
+
+                // JIKA MASIH AKTIF SEWA, JANGAN POTONG KREDIT
+                if (today <= expiration) {
+                    return resolve("Premium User: No deduction");
+                }
+            }
+
+            // JIKA TIDAK ADA MASA AKTIF, BARU POTONG KREDIT
+            db.run("UPDATE users SET credits = credits - 1 WHERE userId = ?", [userId], (err) => {
+                if (err) return reject(err);
+                resolve("Trial Credit deducted");
+            });
+        });
+    });
+}
+
+// Fungsi Admin Lainnya (Tetap Sama)
 function setLicense(userId, username, expirationDateInput) {
     return new Promise((resolve, reject) => {
         let formattedDate;
         try {
             const date = new Date(expirationDateInput);
-            if (isNaN(date.getTime())) {
-                throw new Error("Format tanggal tidak valid. Gunakan YYYY-MM-DD.");
-            }
-            const year = date.getFullYear();
-            const month = (date.getMonth() + 1).toString().padStart(2, '0');
-            const day = date.getDate().toString().padStart(2, '0');
-            formattedDate = `${year}-${month}-${day}`;
-        } catch (e) {
-            return reject(e);
-        }
+            if (isNaN(date.getTime())) throw new Error("Format tanggal salah.");
+            formattedDate = date.toISOString().split('T')[0];
+        } catch (e) { return reject(e); }
 
         const stmt = db.prepare(`
             INSERT INTO users (userId, username, expirationDate)
@@ -42,128 +128,37 @@ function setLicense(userId, username, expirationDateInput) {
         
         stmt.run(userId, username, formattedDate, (err) => {
             if (err) return reject(err);
-            resolve(`Lisensi untuk ${username} (${userId}) diatur sampai ${formattedDate}`);
+            resolve(`✅ Masa aktif ${username} diperbarui sampai ${formattedDate}`);
         });
         stmt.finalize();
     });
 }
 
-// Fungsi "Satpam" yang hanya mengecek lisensi
-function checkUserAccess(userId) {
-    return new Promise((resolve, reject) => {
-        db.get("SELECT * FROM users WHERE userId = ?", [userId], (err, user) => {
-            if (err) return reject(err);
-
-            if (!user) {
-                return reject(new Error("Anda tidak terdaftar. Hubungi admin untuk mendapatkan lisensi."));
-            }
-            if (!user.expirationDate) {
-                 return reject(new Error("Data lisensi Anda rusak (null). Hubungi admin untuk perbaikan."));
-            }
-
-            const today = new Date();
-            const expiration = new Date(user.expirationDate);
-            
-            today.setHours(0, 0, 0, 0);
-            expiration.setHours(0, 0, 0, 0);
-
-            if (today > expiration) {
-                return reject(new Error(`Lisensi Anda sudah habis sejak ${user.expirationDate}.`));
-            }
-
-            const sisaHari = Math.ceil((expiration - today) / (1000 * 60 * 60 * 24)) + 1;
-            resolve(`✅ Akses Diterima.\nSisa lisensi: ${sisaHari} hari lagi.`);
-        });
-    });
-}
-
-// Fungsi untuk melihat SEMUA pengguna
 function getAllUsers() {
     return new Promise((resolve, reject) => {
-        db.all("SELECT userId, expirationDate FROM users ORDER BY expirationDate DESC", [], (err, rows) => {
-            if (err) return reject(err);
-            resolve(rows); 
-        });
+        db.all("SELECT * FROM users ORDER BY expirationDate DESC", [], (err, rows) => { if (err) return reject(err); resolve(rows); });
     });
 }
 
-// === FUNGSI: HANYA LIHAT USER AKTIF ===
 function getActiveUsersOnly() {
     return new Promise((resolve, reject) => {
-        const date = new Date();
-        const year = date.getFullYear();
-        const month = (date.getMonth() + 1).toString().padStart(2, '0');
-        const day = date.getDate().toString().padStart(2, '0');
-        const todayStr = `${year}-${month}-${day}`;
-
-        db.all("SELECT userId, expirationDate FROM users WHERE expirationDate >= ? ORDER BY expirationDate ASC", [todayStr], (err, rows) => {
-            if (err) return reject(err);
-            resolve(rows); 
-        });
+        const todayStr = new Date().toISOString().split('T')[0];
+        db.all("SELECT * FROM users WHERE expirationDate >= ?", [todayStr], (err, rows) => { if (err) return reject(err); resolve(rows); });
     });
 }
 
-// Fungsi untuk menghapus pengguna
 function deleteUser(userId) {
     return new Promise((resolve, reject) => {
-        const stmt = db.prepare("DELETE FROM users WHERE userId = ?");
-        stmt.run(userId, function(err) {
-            if (err) return reject(err);
-            if (this.changes === 0) {
-                resolve(`Pengguna dengan ID ${userId} tidak ditemukan di database.`);
-            } else {
-                resolve(`Pengguna dengan ID ${userId} telah berhasil dihapus.`);
-            }
-        });
-        stmt.finalize();
+        db.run("DELETE FROM users WHERE userId = ?", [userId], function(err) { if (err) return reject(err); resolve(this.changes > 0 ? `User ${userId} dihapus.` : `User tidak ditemukan.`); });
     });
 }
 
-// Fungsi tambah hari ke SEMUA user
-function addDaysToAllUsers(daysToAdd) {
-    return new Promise((resolve, reject) => {
-        const modifier = `+${daysToAdd} days`;
-        const stmt = db.prepare("UPDATE users SET expirationDate = date(expirationDate, ?)");
-        stmt.run(modifier, function(err) { 
-            if (err) return reject(err);
-            resolve(`Berhasil menambahkan ${daysToAdd} hari ke ${this.changes} pengguna (SEMUA).`);
-        });
-        stmt.finalize();
-    });
-}
-
-// === FUNGSI BARU: TAMBAH HARI KE USER AKTIF SAJA ===
-function addDaysToActiveUsers(daysToAdd) {
-    return new Promise((resolve, reject) => {
-        const modifier = `+${daysToAdd} days`;
-        
-        // Ambil tanggal hari ini
-        const date = new Date();
-        const year = date.getFullYear();
-        const month = (date.getMonth() + 1).toString().padStart(2, '0');
-        const day = date.getDate().toString().padStart(2, '0');
-        const todayStr = `${year}-${month}-${day}`;
-
-        // Query: Update HANYA JIKA expirationDate >= hari ini
-        const stmt = db.prepare("UPDATE users SET expirationDate = date(expirationDate, ?) WHERE expirationDate >= ?");
-        
-        stmt.run(modifier, todayStr, function(err) { 
-            if (err) return reject(err);
-            resolve(`Berhasil menambahkan ${daysToAdd} hari ke ${this.changes} pengguna AKTIF saja.`);
-        });
-        stmt.finalize();
-    });
-}
-// ===================================================
+function addDaysToAllUsers(days) { return Promise.resolve("Fitur disabled."); }
+function addDaysToActiveUsers(days) { return Promise.resolve("Fitur disabled."); }
 
 initializeDatabase();
 
 module.exports = {
-    setLicense,
-    checkUserAccess,
-    getAllUsers,
-    getActiveUsersOnly, 
-    deleteUser,
-    addDaysToAllUsers,
-    addDaysToActiveUsers // <-- Ekspor fungsi baru
+    setLicense, checkUserAccess, getAllUsers, getActiveUsersOnly, deleteUser,
+    registerTrialUser, deductCredit, addDaysToAllUsers, addDaysToActiveUsers
 };
