@@ -14,6 +14,7 @@ const API_UPSCALE_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchAsync
 // ===== TOKEN LOKAL ANDA =====
 const ALL_TOKENS = [
   "ya29.a0Aa7pCA83uEjair4ggiVfwY67yI2sA7kwaa3rC_kuGFf818H1UmoXAcMvMROgNYq37_ZdBjz_OZlGXd9fDjmYL2zg6ciq7UFeTQ7Y2oFq5kKc_ngpVeE09EsfTqaS2-zDoTWGO1q2BZ1c5HNbRIEwBXcxdZBUVmWEe-0ATlNpqpB5HXdT-QpGw8LscPrdhklVR9fkq9oiXhVcLH8sA0FSaY41tkROBnC25sYWjdVUx5si0ZJ4XKaR52Th-Dwjxev08B-ZJ9MsDOVH1vyXDlItqpOBAQDjS0Vb4zUKSaM1j1tXT1uBALXbFMOdFEyCWbPgA2H-jLumWUKIB5_ob0gRL5-gaQHyldUm4a3uqV0IMXIaCgYKAYoSARISFQHGX2MiKPmXcFYudoCbf_WnSqMHrg0370"
+];
 // ===================================
 
 // PROJEK ID MASTER (Yang terbukti jalan di T2V)
@@ -328,10 +329,6 @@ module.exports = {
     generateVideo,
     generateVideoFromImage
 };
-
-
-
-
 
 
 
