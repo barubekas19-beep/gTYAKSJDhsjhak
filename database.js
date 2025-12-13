@@ -19,7 +19,7 @@ function initializeDatabase() {
             // Error diabaikan jika kolom sudah ada
         });
         
-        console.log("Database siap (Sistem Sewa + Trial 5x).");
+        console.log("✅ Database siap (Sistem Sewa + Trial 5x).");
     });
 }
 
@@ -63,7 +63,7 @@ function checkUserAccess(userId) {
                 expiration.setHours(0,0,0,0);
 
                 if (today <= expiration) {
-                    const sisaHari = Math.ceil((expiration - today) / (1000 * 60 * 60 * 24)) + 1; // +1 biar hari H terhitung
+                    const sisaHari = Math.ceil((expiration - today) / (1000 * 60 * 60 * 24)); 
                     // Jika masih dalam masa sewa, lolos tanpa cek kredit
                     return resolve({ type: 'premium', msg: `💎 **Premium Akses**\nSisa masa aktif: ${sisaHari} hari (Unlimited Generate).` });
                 }
@@ -108,7 +108,7 @@ function deductCredit(userId) {
     });
 }
 
-// Fungsi Admin Lainnya (Tetap Sama)
+// --- FUNGSI ADMIN LAINNYA (TETAP SAMA) ---
 function setLicense(userId, username, expirationDateInput) {
     return new Promise((resolve, reject) => {
         let formattedDate;
@@ -153,6 +153,7 @@ function deleteUser(userId) {
     });
 }
 
+// Placeholder agar tidak error saat dipanggil bot.js lama
 function addDaysToAllUsers(days) { return Promise.resolve("Fitur disabled."); }
 function addDaysToActiveUsers(days) { return Promise.resolve("Fitur disabled."); }
 
