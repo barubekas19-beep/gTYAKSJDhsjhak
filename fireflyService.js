@@ -13,8 +13,7 @@ const API_UPSCALE_URL = 'https://aisandbox-pa.googleapis.com/v1/video:batchAsync
 
 // ===== TOKEN LOKAL ANDA =====
 const ALL_TOKENS = [
-  "ya29.a0Aa7pCA9e26sB59Ev8ou_469yr8dDjVzDjSWSwq-hBliyU2o3RBaDuqd0JDNAJMc8Op4KU299ZGJRr_0iJVuGBblkn8Hu3v63m1zhmXDdTu8XoAu_6O3Lx8VVKxcO75p1xkEf5fyE7Lc0CFtEvJ-qmIN1Bm8cyx76P7zZ8aFYrx0QTTAlsdBNJTEDG__z8lj2co2qtdS5h16uPlEVPsLZQL3O6j-v1DdxINhNMjZ28kj6xVyNZk_nhbnnG7Z-Edduscv6MdJZ7N38VBlcpodsFadsg5o2lgCWXGpzOKBsQ_4ZXDdRO-NadB9JVU67l1phMq4qOAl6O1RaKmnJFnyKUFYpUHb9jHGRMRW756pfDF8aCgYKAY4SARISFQHGX2MiE2JuAEdry7cBWgYFkEIQvg0370"
-];
+  "ya29.a0Aa7pCA-NWNdx3AvpNKU9M4QCr1IkrVvT8zw7ozFr10ieIowv6PgzsfYvAQNINKpYy4gllBcQZEW8yhilSRZuNsCGBSL_uT7LHIZyZ7-aLraejXblP6GoD6yJEE8s1oxzXtKGDoao56hj0MQ-sgy6s8gcs9vGhl681SQTJoicM2XFev4VafI3bELR8Aa1jEys_Uuetinv64xTfjyEjcTD93h_Jj8kyvnjsF4QiBq2NhG2uCh16AbQAH99iPndaChIYGChKR6P1_MRTHTwCKr5MYhn2dZSyuXDWJCi98vuj_QTuere76-ZABVJw3wvQJWQdScSemnhb1Lk5XS8fyNN4qllH72D1nEqxm9oUfA3tgaCgYKAeUSARISFQHGX2MiKR96-wpHJhKdLLHfFwSxtA0369"
 // ===================================
 
 // PROJEK ID MASTER (Yang terbukti jalan di T2V)
@@ -329,6 +328,7 @@ module.exports = {
     generateVideo,
     generateVideoFromImage
 };
+
 
 
 
